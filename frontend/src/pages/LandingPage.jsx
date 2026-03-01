@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { FaCode, FaRocket, FaRobot, FaGithub, FaTerminal, FaShieldAlt, FaGlobe, FaSearch } from 'react-icons/fa';
-import { SiPython, SiJavascript, SiCplusplus, SiRust, SiGo } from 'react-icons/si';
+import { SiPython, SiJavascript, SiCplusplus, SiRust, SiGo, SiReact, SiVuedotjs, SiAngular, SiNextdotjs, SiDjango, SiFlask, SiNodedotjs, SiSonarqube, SiGithub } from 'react-icons/si';
 
 const features = [
     { icon: <FaTerminal size={20} />, title: 'Multi-Language Sandbox', desc: 'Execute Python, JS, C++, Rust, Go and more in Docker-isolated containers.' },
@@ -18,6 +18,15 @@ const langs = [
     { icon: <SiCplusplus size={28} color="#659ad2" />, label: 'C++' },
     { icon: <SiRust size={28} color="#dea584" />, label: 'Rust' },
     { icon: <SiGo size={28} color="#00add8" />, label: 'Go' },
+    { icon: <SiReact size={28} color="#61DAFB" />, label: 'React' },
+    { icon: <SiVuedotjs size={28} color="#42B883" />, label: 'Vue.js' },
+    { icon: <SiAngular size={28} color="#DD0031" />, label: 'Angular' },
+    { icon: <SiNextdotjs size={28} color="#ffffff" />, label: 'Next.js' },
+    { icon: <SiDjango size={28} color="#0C4B33" />, label: 'Django' },
+    { icon: <SiFlask size={28} color="#aaaaaa" />, label: 'Flask' },
+    { icon: <SiNodedotjs size={28} color="#3C873A" />, label: 'Node.js' },
+    { icon: <SiSonarqube size={28} color="#4E9BCD" />, label: 'SonarQube' },
+    { icon: <SiGithub size={28} color="#ffffff" />, label: 'GitHub' },
 ];
 
 export default function LandingPage() {

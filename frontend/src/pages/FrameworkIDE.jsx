@@ -423,7 +423,7 @@ export default function FrameworkIDE() {
                     </div>
                 </div>
 
-                <Group direction="horizontal" style={{ width: '100%', height: '100%' }}>
+                <Group orientation="horizontal" style={{ width: '100%', height: '100%' }}>
 
                     {/* ① Sidebar (Explorer or Git) */}
                     <Panel defaultSize={layoutStyle === 'vscode' ? 18 : 16} minSize={12} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
@@ -470,7 +470,7 @@ export default function FrameworkIDE() {
                         <>
                             {/* VS Code Style: Editor Top, Terminal Bottom in center panel, Agent on right */}
                             <Panel defaultSize={55} minSize={30} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 4 }}>
-                                <Group direction="vertical" style={{ height: '100%' }}>
+                                <Group orientation="vertical" style={{ height: '100%' }}>
                                     <Panel defaultSize={70} minSize={25} style={{ display: 'flex', flexDirection: 'column', background: '#0d0d1a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
                                         {/* Editor Content */}
 
@@ -527,7 +527,8 @@ export default function FrameworkIDE() {
                                                     <iframe id="preview-frame-custom" src={previewUrl} style={{ width: '100%', flex: 1, border: 'none', background: '#fff' }} title="Preview" />
                                                 </div>
                                             )}
-                                        </div>                    </Panel>
+                                        </div>
+                                    </Panel>
 
                                     <Separator onDragging={() => editorRef.current?.layout?.()} style={{ height: 4, cursor: 'row-resize', flexShrink: 0 }} />
 
@@ -758,7 +759,7 @@ export default function FrameworkIDE() {
 
                             {/* Stack AI Agent and Terminal on the right */}
                             <Panel defaultSize={27} minSize={20} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <Group direction="vertical" style={{ height: '100%' }}>
+                                <Group orientation="vertical" style={{ height: '100%' }}>
                                     {/* AI Agent Panel Top */}
                                     <Panel defaultSize={60} minSize={30} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)', overflow: 'hidden' }}>
                                         {/* Header + model selector */}

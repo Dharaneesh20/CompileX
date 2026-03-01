@@ -24,7 +24,8 @@ class UserModel:
             "email": email,
             "password": hashed_password,
             "provider": "email",
-            "createdAt": datetime.utcnow()
+            "createdAt": datetime.utcnow(),
+            "code_executions": 0
         }
         
         result = users_collection.insert_one(user_data)
@@ -58,6 +59,7 @@ class UserModel:
             "ai_provider": user.get("ai_provider", "gemini"),
             "ai_model": user.get("ai_model", "gemini-2.0-flash"),
             "ai_key_encrypted": user.get("ai_key_encrypted", ""),
+            "code_executions": user.get("code_executions", 0),
         }
 
     @staticmethod
@@ -75,6 +77,14 @@ class UserModel:
         users_collection.update_one(
             {"_id": ObjectId(user_id)},
             {"$set": fields}
+        )
+
+    @staticmethod
+    def increment_execution_count(user_id):
+        from bson.objectid import ObjectId
+        users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$inc": {"code_executions": 1}}
         )
 
     @staticmethod

@@ -162,6 +162,36 @@ def oauth_login():
     return jsonify({"message": f"{provider} Login successful", "token": token, "user": user}), 200
 
 # Projects API integration
+@app.route("/api/user/me", methods=["GET"])
+@token_required
+def get_current_user_info(current_user):
+    # Fetch latest from DB to ensure metrics are precise
+    db_user = UserModel.get_user_by_id(current_user["id"])
+    if not db_user:
+        return jsonify({"error": "User not found"}), 404
+        
+    projects = ProjectModel.get_user_projects(current_user["id"])
+    workspaces = WorkspaceModel.get_by_user(current_user["id"])
+    
+    # Calculate storage footprint for traditional projects
+    storage_bytes = 0
+    for p in projects:
+        storage_bytes += len(p.get("code", "") or "")
+    
+    # Calculate storage footprint for workspaces (aggregate active sizes from disk)
+    for ws in workspaces:
+        # A rough approximation of workspace files size if we don't have exact metrics
+        # Ideally, we would sum the sizes from the file system.
+        storage_bytes += 500000  # Default estimate ~500KB per workspace
+        
+    return jsonify({
+        "user": db_user,
+        "metrics": {
+            "executions": db_user.get("code_executions", 0),
+            "storageBytes": storage_bytes
+        }
+    }), 200
+
 @app.route("/api/projects", methods=["GET"])
 @token_required
 def get_projects(current_user):
@@ -209,6 +239,9 @@ def execute_code(current_user):
     # Optional: Save the project's new code before running
     if project_id:
         ProjectModel.update_project(project_id, current_user["id"], code)
+
+    # Track valid executions in user model
+    UserModel.increment_execution_count(current_user["id"])
 
     result = CodeExecutor.execute(language, code)
     if "error" in result and result["error"].startswith("Language"):
@@ -827,12 +860,3 @@ def workspace_agent(current_user, ws_id):
                 "path":    path,
                 "content": content or "(file not found)",
             })
-
-        executed.append(result_item)
-
-    return jsonify({"reply": reply, "actions": actions, "executed": executed}), 200
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)

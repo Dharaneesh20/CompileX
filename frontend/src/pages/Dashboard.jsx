@@ -146,9 +146,12 @@ export default function Dashboard() {
             const res = await api.get('/projects');
             const data = Array.isArray(res.data) ? res.data : [];
             setProjects(data);
-            let bytes = 0;
-            data.forEach(p => { bytes += (p.code?.length || 500); });
-            setMetrics({ executions: data.length * 14, storageBytes: bytes });
+
+            // Now fetch metrics
+            const meRes = await api.get('/user/me');
+            if (meRes.data && meRes.data.metrics) {
+                setMetrics(meRes.data.metrics);
+            }
         } catch { setProjects([]); }
         finally { setLoading(false); }
     };
@@ -256,8 +259,8 @@ export default function Dashboard() {
                 {/* KPI Strip */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16, marginBottom: 40 }}>
                     {[
-                        { label: 'Total Projects', value: projects.length, icon: <FaFolder size={18} />, color: '#6366f1' },
-                        { label: 'Code Executions', value: `${metrics.executions}`, badge: '↑12%', icon: <FaServer size={18} />, color: '#10b981' },
+                        { label: 'Total Projects', value: workspaces.length + projects.length, icon: <FaFolder size={18} />, color: '#6366f1' },
+                        { label: 'Code Executions', value: `${metrics.executions}`, badge: '', icon: <FaServer size={18} />, color: '#10b981' },
                         { label: 'Storage Used', value: formatBytes(metrics.storageBytes), sub: '5 MB quota', icon: <FaHdd size={18} />, color: '#f59e0b', progress: storagePercent },
                     ].map(k => (
                         <div key={k.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '20px 24px', display: 'flex', alignItems: 'center', gap: 16 }}>

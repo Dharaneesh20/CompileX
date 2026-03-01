@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
     FaCode, FaPlus, FaCog, FaRocket, FaHdd, FaCheckCircle, FaTimesCircle,
     FaServer, FaSignOutAlt, FaFolder, FaTrash, FaLock, FaKey, FaEye, FaEyeSlash,
-    FaGlobe, FaMobile, FaDesktop, FaReact, FaVuejs, FaAngular, FaNodeJs
+    FaGlobe, FaMobile, FaDesktop, FaReact, FaVuejs, FaAngular, FaNodeJs,
+    FaSearch, FaGitAlt, FaTimes, FaMemory, FaMicrochip, FaDocker, FaSpinner, FaExternalLinkAlt
 } from 'react-icons/fa';
 import { FaPython, FaJava, FaJsSquare } from 'react-icons/fa';
 import { SiCplusplus, SiGo, SiRust, SiTypescript, SiDjango, SiFlask, SiNextdotjs, SiFlutter, SiIonic, SiElectron, SiDotnet, SiQt } from 'react-icons/si';
@@ -83,13 +84,61 @@ export default function Dashboard() {
     const [pwStatus, setPwStatus] = useState(null); // null | 'submitting' | 'success' | 'error'
     const [pwMsg, setPwMsg] = useState('');
 
+    // Workspace state
+    const [workspaces, setWorkspaces] = useState([]);
+    const [wsSearch, setWsSearch] = useState('');
+    const [wsCreating, setWsCreating] = useState(null); // framework being created
+    const [wsDeleteConfirm, setWsDeleteConfirm] = useState(null);
+    const [wsDeleting, setWsDeleting] = useState(false);
+    // Git clone modal
+    const [showClone, setShowClone] = useState(false);
+    const [cloneUrl, setCloneUrl] = useState('');
+    const [cloneName, setCloneName] = useState('');
+    const [cloning, setCloning] = useState(false);
+    const [cloneError, setCloneError] = useState('');
+
     useEffect(() => {
         fetchProjects();
+        fetchWorkspaces();
         checkGithub();
     }, []);
 
     const checkGithub = async () => {
         try { const r = await api.get('/user/github'); setGhLinked(r.data.linked); } catch { }
+    };
+
+    const fetchWorkspaces = async () => {
+        try { const r = await api.get('/workspaces'); setWorkspaces(r.data.workspaces || []); } catch { }
+    };
+
+    // Create workspace and navigate immediately
+    const createAndOpenFramework = async (framework) => {
+        setWsCreating(framework);
+        try {
+            const r = await api.post('/workspace', { framework });
+            await fetchWorkspaces();
+            navigate(`/framework/${r.data.id}`);
+        } catch (e) { console.error(e); }
+        finally { setWsCreating(null); }
+    };
+
+    const handleDeleteWorkspace = async (ws) => {
+        setWsDeleting(true);
+        try { await api.delete(`/workspace/${ws.id}`); await fetchWorkspaces(); } catch { }
+        finally { setWsDeleting(false); setWsDeleteConfirm(null); }
+    };
+
+    const handleClone = async (e) => {
+        e.preventDefault(); setCloneError('');
+        if (!cloneUrl.trim()) return;
+        setCloning(true);
+        try {
+            const r = await api.post('/workspace/clone', { url: cloneUrl.trim(), name: cloneName.trim() });
+            await fetchWorkspaces();
+            setShowClone(false); setCloneUrl(''); setCloneName('');
+            navigate(`/framework/${r.data.id}`);
+        } catch (e) { setCloneError(e.response?.data?.error || e.message); }
+        finally { setCloning(false); }
     };
 
     const fetchProjects = async () => {
@@ -231,6 +280,83 @@ export default function Dashboard() {
                     ))}
                 </div>
 
+                {/* ── MY FRAMEWORK WORKSPACES ─────────────────────────── */}
+                <div style={{ marginBottom: 48 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <FaCode size={16} color="#6366f1" /> My Workspaces
+                        </h2>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            {/* Search */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 12px', width: 200 }}>
+                                <FaSearch size={11} color="#475569" />
+                                <input value={wsSearch} onChange={e => setWsSearch(e.target.value)} placeholder="Search workspaces…"
+                                    style={{ background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontSize: 12, width: '100%' }} />
+                            </div>
+                            {/* Git Clone */}
+                            <button onClick={() => setShowClone(true)}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '6px 14px', color: '#94a3b8', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                                <FaGitAlt size={12} color="#f59e0b" /> Clone Repo
+                            </button>
+                        </div>
+                    </div>
+
+                    {workspaces.length === 0 ? (
+                        <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px dashed rgba(255,255,255,0.08)', borderRadius: 16, padding: '32px', textAlign: 'center', color: '#334155', fontSize: 13 }}>
+                            No workspaces yet — click <strong style={{ color: '#6366f1' }}>React</strong> or <strong style={{ color: '#f59e0b' }}>Flask</strong> below to create one, or clone a repo above.
+                        </div>
+                    ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 14 }}>
+                            {workspaces
+                                .filter(w => !wsSearch || w.name.toLowerCase().includes(wsSearch.toLowerCase()))
+                                .map(ws => {
+                                    const isReact = ws.framework === 'react';
+                                    const wsAccent = isReact ? '#61DAFB' : '#f59e0b';
+                                    const wsGrad = isReact ? 'linear-gradient(135deg,#1d4ed8,#61DAFB)' : 'linear-gradient(135deg,#f59e0b,#fbbf24)';
+                                    return (
+                                        <div key={ws.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '14px 18px', position: 'relative', overflow: 'hidden' }}>
+                                            {/* Accent bar */}
+                                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: wsGrad }} />
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                    <div style={{ width: 32, height: 32, borderRadius: 9, background: wsGrad, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                        <FaCode size={13} color="#fff" />
+                                                    </div>
+                                                    <div>
+                                                        <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#fff' }}>{ws.name}</p>
+                                                        <p style={{ margin: 0, fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>ws/{ws.id}</p>
+                                                    </div>
+                                                </div>
+                                                <button onClick={() => setWsDeleteConfirm(ws)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#334155', padding: 4 }}>
+                                                    <FaTrash size={11} />
+                                                </button>
+                                            </div>
+                                            {/* Meta badges */}
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
+                                                <span style={{ ...wsBadge, color: wsAccent, borderColor: `${wsAccent}30`, background: `${wsAccent}10` }}>
+                                                    {isReact ? 'React' : 'Flask'} {ws.framework_version && `${ws.framework_version}`}
+                                                </span>
+                                                <span style={{ ...wsBadge, color: '#60a5fa' }}><FaDocker size={9} /> {ws.docker_os || 'alpine'}</span>
+                                                <span style={{ ...wsBadge, color: '#a78bfa' }}><FaMemory size={9} /> {ws.memory_mb || 512} MB</span>
+                                                <span style={{ ...wsBadge, color: '#34d399' }}><FaMicrochip size={9} /> {ws.cpu_cores || 1} Core{ws.cpu_cores > 1 ? 's' : ''}</span>
+                                                {ws.git_url && <span style={{ ...wsBadge, color: '#f59e0b' }}><FaGitAlt size={9} /> Cloned</span>}
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <span style={{ fontSize: 10, color: '#334155' }}>
+                                                    {new Date(ws.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </span>
+                                                <button onClick={() => navigate(`/framework/${ws.id}`)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 5, background: wsGrad, border: 'none', borderRadius: 7, padding: '5px 12px', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                                                    <FaExternalLinkAlt size={9} /> Open IDE
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                        </div>
+                    )}
+                </div>
+
                 {/* ── FRAMEWORKS SECTION ── */}
                 <div style={{ marginBottom: 48 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -246,10 +372,11 @@ export default function Dashboard() {
                         icon={<FaGlobe size={13} color="#6366f1" />}
                         frameworks={WEB_FRAMEWORKS}
                         onSelect={name => {
-                            if (name === 'React') navigate('/framework/react');
-                            else if (name === 'Flask') navigate('/framework/flask');
+                            if (name === 'React') createAndOpenFramework('react');
+                            else if (name === 'Flask') createAndOpenFramework('flask');
                             else setComingSoon(name);
                         }}
+                        creating={wsCreating}
                     />
 
                     {/* System Frameworks */}
@@ -409,6 +536,51 @@ export default function Dashboard() {
                     </div>
                 </ModalWrapper>
             )}
+
+            {/* ─── Git Clone Modal ─── */}
+            {showClone && (
+                <ModalWrapper onClose={() => { setShowClone(false); setCloneUrl(''); setCloneError(''); }} title="🔗 Clone a Repository">
+                    <form onSubmit={handleClone} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                        <div>
+                            <label style={labelStyle}>Repository URL *</label>
+                            <input type="url" value={cloneUrl} onChange={e => setCloneUrl(e.target.value)} required
+                                placeholder="https://github.com/user/repo.git" style={inputStyle} autoFocus />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Project Name (optional)</label>
+                            <input value={cloneName} onChange={e => setCloneName(e.target.value)}
+                                placeholder="Auto-detected from repo name" style={inputStyle} />
+                        </div>
+                        {cloneError && <p style={{ color: '#f87171', fontSize: 12, margin: 0 }}>⚠️ {cloneError}</p>}
+                        <button type="submit" disabled={cloning || !cloneUrl.trim()}
+                            style={{ padding: '12px 24px', background: cloning ? 'rgba(246,173,85,0.2)' : 'linear-gradient(135deg,#f59e0b,#fbbf24)', border: 'none', borderRadius: 10, color: cloning ? '#f59e0b' : '#0d0d1a', fontWeight: 700, cursor: cloning ? 'default' : 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                            {cloning ? <><FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={14} /> Cloning…</> : <><FaGitAlt size={14} /> Clone & Open IDE</>}
+                        </button>
+                    </form>
+                </ModalWrapper>
+            )}
+
+            {/* ─── Delete Workspace Confirmation ─── */}
+            {wsDeleteConfirm && (
+                <ModalWrapper onClose={() => setWsDeleteConfirm(null)} title="Delete Workspace?">
+                    <p style={{ color: '#94a3b8', fontSize: 14, marginBottom: 20 }}>
+                        This will permanently delete <strong style={{ color: '#fff' }}>{wsDeleteConfirm.name}</strong> and all its files from disk. This action cannot be undone.
+                    </p>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                        <button onClick={() => handleDeleteWorkspace(wsDeleteConfirm)} disabled={wsDeleting}
+                            style={{ flex: 1, padding: '12px', background: 'linear-gradient(135deg,#dc2626,#ef4444)', border: 'none', borderRadius: 10, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                            {wsDeleting ? <FaSpinner style={{ animation: 'spin 1s linear infinite' }} size={14} /> : <FaTrash size={14} />}
+                            {wsDeleting ? 'Deleting…' : 'Yes, Delete'}
+                        </button>
+                        <button onClick={() => setWsDeleteConfirm(null)}
+                            style={{ padding: '12px 20px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: 14 }}>
+                            Cancel
+                        </button>
+                    </div>
+                </ModalWrapper>
+            )}
+
+
 
             {/* ─── Settings Modal ─── */}
             {showSettings && (
@@ -649,3 +821,4 @@ function Section({ label, children }) {
 
 const labelStyle = { display: 'block', color: '#64748b', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 };
 const inputStyle = { width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 14px', color: '#e2e8f0', fontSize: 13, outline: 'none', transition: 'border-color .2s', boxSizing: 'border-box', fontFamily: 'inherit' };
+const wsBadge = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 99, padding: '2px 7px' };

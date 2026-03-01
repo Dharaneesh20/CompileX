@@ -40,7 +40,7 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/framework/:type"
+        path="/framework/:wsId"
         element={
           <ProtectedRoute>
             <FrameworkIDE />

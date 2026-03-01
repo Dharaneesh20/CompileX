@@ -429,6 +429,8 @@ class WorkspaceManager:
 
     @staticmethod
     def exec_command(ws_id: str, command: str, cwd_rel: str = "") -> dict:
+        import threading, queue as _queue, time as _time, copy
+
         ws_root = WorkspaceManager._ws_path(ws_id)
         try:
             if cwd_rel:
@@ -437,21 +439,91 @@ class WorkspaceManager:
             else:
                 cwd = ws_root
 
-            result = subprocess.run(
+            # Clean env — strip Flask/Werkzeug socket vars so child processes
+            # don't inherit the parent's socket FD (avoids WinError 10038).
+            clean_env = copy.copy(os.environ)
+            for var in ("WERKZEUG_SERVER_FD", "WERKZEUG_RUN_MAIN", "FLASK_RUN_FROM_CLI"):
+                clean_env.pop(var, None)
+
+            proc = subprocess.Popen(
                 command, shell=True, cwd=cwd,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, timeout=120, encoding="utf-8", errors="replace"
+                text=True, encoding="utf-8", errors="replace",
+                close_fds=True, env=clean_env,
             )
-            return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "returncode": result.returncode,
-                "status": "success" if result.returncode == 0 else "error",
-            }
-        except subprocess.TimeoutExpired:
-            return {"stdout": "", "stderr": "Command timed out after 120s", "returncode": -1, "status": "error"}
+
+            # ── Collect output with 8-second fast-exit window ────────────────
+            out_q: _queue.Queue = _queue.Queue()
+
+            def _reader(stream, tag):
+                try:
+                    for line in stream:
+                        out_q.put((tag, line))
+                except Exception:
+                    pass
+                out_q.put((tag, None))  # sentinel: stream closed
+
+            t1 = threading.Thread(target=_reader, args=(proc.stdout, "out"), daemon=True)
+            t2 = threading.Thread(target=_reader, args=(proc.stderr, "err"), daemon=True)
+            t1.start(); t2.start()
+
+            stdout_lines, stderr_lines, sentinels = [], [], 0
+            deadline = _time.time() + 8
+
+            while _time.time() < deadline:
+                remaining = max(0.05, deadline - _time.time())
+                try:
+                    tag, line = out_q.get(timeout=remaining)
+                    if line is None:        # sentinel
+                        sentinels += 1
+                        if sentinels == 2:
+                            break           # both streams closed → process done
+                    elif tag == "out":
+                        stdout_lines.append(line)
+                    else:
+                        stderr_lines.append(line)
+                except _queue.Empty:
+                    if proc.poll() is not None:
+                        break               # process exited within 8 s
+
+            # Drain any remaining buffered lines
+            while True:
+                try:
+                    tag, line = out_q.get_nowait()
+                    if line:
+                        (stdout_lines if tag == "out" else stderr_lines).append(line)
+                except _queue.Empty:
+                    break
+
+            stdout = "".join(stdout_lines)
+            stderr = "".join(stderr_lines)
+
+            if proc.poll() is None:
+                # ── Long-running server detected: process is still alive ──────
+                # Return captured initial output; leave the process running.
+                note = (f"⚡ Server is running in background (PID {proc.pid}).\n"
+                        "Use an external terminal or the Stop button to kill it.")
+                return {
+                    "stdout":     (stdout or "(server output not yet captured)") + "\n" + note,
+                    "stderr":     stderr,
+                    "returncode": 0,
+                    "status":     "running",
+                    "pid":        proc.pid,
+                }
+            else:
+                rc = proc.returncode
+                return {
+                    "stdout":     stdout,
+                    "stderr":     stderr,
+                    "returncode": rc,
+                    "status":     "success" if rc == 0 else "error",
+                }
+
         except Exception as e:
             return {"stdout": "", "stderr": str(e), "returncode": -1, "status": "error"}
+
+
+
 
     @staticmethod
     def flat_file_list(ws_id: str) -> list:
@@ -466,3 +538,100 @@ class WorkspaceManager:
                     flatten(n.get("children", []))
         flatten(tree)
         return result
+
+    @staticmethod
+    def detect_framework_version(ws_id: str, framework: str) -> str:
+        """Auto-detect installed framework version from project files."""
+        ws_path = WorkspaceManager._ws_path(ws_id)
+        try:
+            if framework == "react":
+                pkg_path = os.path.join(ws_path, "package.json")
+                if os.path.isfile(pkg_path):
+                    with open(pkg_path, encoding="utf-8") as f:
+                        pkg = json.load(f)
+                    # Check installed (node_modules) or declared version
+                    ver = (pkg.get("dependencies", {}).get("react", "") or
+                           pkg.get("devDependencies", {}).get("react", ""))
+                    return ver.lstrip("^~").strip() or "18.3.1"
+            elif framework == "flask":
+                req_path = os.path.join(ws_path, "requirements.txt")
+                if os.path.isfile(req_path):
+                    with open(req_path, encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip().lower()
+                            if line.startswith("flask") and not line.startswith("flask-"):
+                                # e.g. "flask>=3.0.0" → "3.0.0"
+                                ver = line.split(">=")[-1].split("==")[-1].split("<=")[-1]
+                                return ver.strip() or "3.0.0"
+                return "3.0.0"
+        except Exception:
+            pass
+        return ""
+
+    # ── Smart export (no node_modules/venv, but keep .env) ──────────────────
+    EXPORT_EXCLUDE = {
+        "node_modules", "__pycache__", "venv", ".venv", "env",
+        "dist", "build", ".git", ".pytest_cache",
+    }
+
+    @staticmethod
+    def smart_export(ws_id: str) -> dict:
+        """Return {rel_path: content} for all files excluding bloat dirs.
+        .env files are ALWAYS included even if they start with a dot."""
+        ws_root = WorkspaceManager._ws_path(ws_id)
+        if not os.path.isdir(ws_root):
+            return {}
+
+        files = {}
+        for dirpath, dirnames, filenames in os.walk(ws_root):
+            # Prune excluded directories in-place
+            dirnames[:] = [d for d in dirnames if d not in WorkspaceManager.EXPORT_EXCLUDE]
+            for fname in filenames:
+                full = os.path.join(dirpath, fname)
+                rel = os.path.relpath(full, ws_root).replace("\\", "/")
+                # Skip .compilex.json internal metadata
+                if fname == ".compilex.json":
+                    continue
+                # Always include .env files even though they start with '.'
+                if fname.startswith(".") and not fname.startswith(".env"):
+                    continue
+                try:
+                    with open(full, "r", encoding="utf-8", errors="replace") as f:
+                        files[rel] = f.read()
+                except Exception:
+                    pass
+        return files
+
+    @staticmethod
+    def clone_repo(git_url: str, user_id: str, name: str = "") -> dict:
+        """Clone a remote git repository into a new workspace directory.
+        Returns workspace meta dict {id, framework, name, ...} or raises RuntimeError."""
+        import shutil
+        ws_id = uuid.uuid4().hex[:10]
+        ws_path = WorkspaceManager._ws_path(ws_id)
+        os.makedirs(ws_path, exist_ok=True)
+
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", git_url, "."],
+            cwd=ws_path,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=120, encoding="utf-8", errors="replace"
+        )
+        if result.returncode != 0:
+            shutil.rmtree(ws_path, ignore_errors=True)
+            raise RuntimeError(result.stderr.strip() or "git clone failed")
+
+        # Detect framework from cloned files
+        if os.path.isfile(os.path.join(ws_path, "package.json")):
+            framework = "react"
+        elif os.path.isfile(os.path.join(ws_path, "app.py")) or \
+             os.path.isfile(os.path.join(ws_path, "requirements.txt")):
+            framework = "flask"
+        else:
+            framework = "react"   # default
+
+        repo_name = name or git_url.rstrip("/").split("/")[-1].replace(".git", "")
+        meta = {"id": ws_id, "user_id": user_id, "framework": framework, "name": repo_name}
+        with open(os.path.join(ws_path, ".compilex.json"), "w") as f:
+            json.dump(meta, f)
+        return meta

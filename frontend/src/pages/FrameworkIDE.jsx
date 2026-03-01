@@ -217,13 +217,26 @@ export default function FrameworkIDE() {
         setTerminals(prev => prev.map((t, i) => i === idx ? { ...t, input: '', running: true, history: [...t.history, { cmd, out: '', status: 'running' }] } : t));
         try {
             const r = await api.post(`/workspace/${workspace.id}/exec`, { command: cmd });
-            const combined = (r.data.stdout + r.data.stderr).trimEnd();
-            setTerminals(prev => prev.map((t, i) => { if (i !== idx) return t; const h = [...t.history]; h[h.length - 1] = { cmd, out: combined || '(no output)', status: r.data.status }; return { ...t, running: false, history: h }; }));
+            const combined = ((r.data.stdout || '') + (r.data.stderr || '')).trimEnd();
+            // Backend returns status:'running' for long-lived servers (still alive after 8s)
+            const histStatus = r.data.status === 'running' ? 'background' : r.data.status;
+            setTerminals(prev => prev.map((t, i) => {
+                if (i !== idx) return t;
+                const h = [...t.history];
+                h[h.length - 1] = { cmd, out: combined || '(no output)', status: histStatus, pid: r.data.pid };
+                return { ...t, running: false, history: h };
+            }));
         } catch (e) {
-            setTerminals(prev => prev.map((t, i) => { if (i !== idx) return t; const h = [...t.history]; h[h.length - 1] = { cmd, out: e.message, status: 'error' }; return { ...t, running: false, history: h }; }));
+            setTerminals(prev => prev.map((t, i) => {
+                if (i !== idx) return t;
+                const h = [...t.history];
+                h[h.length - 1] = { cmd, out: e.message, status: 'error' };
+                return { ...t, running: false, history: h };
+            }));
         }
         setTimeout(() => termScrollRef.current?.scrollTo(0, 999999), 100);
     };
+
 
     const addTerminal = () => { const id = terminals.length + 1; setTerminals(prev => [...prev, { id, name: `Terminal ${id}`, history: [], input: '', running: false }]); setActiveTerm(terminals.length); };
     const removeTerminal = (idx, e) => { e.stopPropagation(); setTerminals(prev => prev.filter((_, i) => i !== idx)); setActiveTerm(Math.max(0, idx - 1)); };
@@ -428,8 +441,16 @@ export default function FrameworkIDE() {
                                                 <div key={i} style={{ marginBottom: 8 }}>
                                                     <div style={{ color: '#818cf8' }}>$ {h.cmd}</div>
                                                     {h.status === 'running'
-                                                        ? <div style={{ color: '#475569' }}>Running…</div>
-                                                        : <pre style={{ margin: 0, color: h.status === 'error' ? '#fca5a5' : '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>}
+                                                        ? <div style={{ color: '#475569', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}><FaSpinner size={9} style={{ animation: 'spin 1s linear infinite' }} /> Running…</div>
+                                                        : h.status === 'background'
+                                                            ? <div>
+                                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#4ade80', marginBottom: 4 }}>
+                                                                    <FaServer size={8} /> Server running in background {h.pid && `(PID ${h.pid})`}
+                                                                </div>
+                                                                {h.out && <pre style={{ margin: 0, color: '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>}
+                                                            </div>
+                                                            : <pre style={{ margin: 0, color: h.status === 'error' ? '#fca5a5' : '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>
+                                                    }
                                                 </div>
                                             ))}
                                         </div>

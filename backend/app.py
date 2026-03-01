@@ -15,6 +15,7 @@ from ai_service import AIService
 from ai_providers import PROVIDER_CATALOGUE, get_chat_response as provider_chat
 from crypto import encrypt_key, decrypt_key
 from workspace import WorkspaceManager
+from workspace_model import WorkspaceModel
 from functools import wraps
 import json
 import re
@@ -396,8 +397,22 @@ def github_push(current_user, project_id):
 
 
 # ══════════════════════════════════════════════════════════════
-#  WORKSPACE / FRAMEWORK IDE ROUTES
+#  WORKSPACE / FRAMEWORK IDE ROUTES (V2 — MongoDB persistence)
 # ══════════════════════════════════════════════════════════════
+
+@app.route("/api/workspaces", methods=["GET"])
+@token_required
+def list_workspaces(current_user):
+    """List all workspaces belonging to the current user."""
+    ws_list = WorkspaceModel.get_by_user(current_user["id"])
+    # Enrich each entry with framework version detected from disk
+    for ws in ws_list:
+        if not ws.get("framework_version"):
+            detected = WorkspaceManager.detect_framework_version(ws["id"], ws["framework"])
+            if detected:
+                ws["framework_version"] = detected
+    return jsonify({"workspaces": ws_list}), 200
+
 
 @app.route("/api/workspace", methods=["POST"])
 @token_required
@@ -406,17 +421,94 @@ def create_workspace(current_user):
     framework = data.get("framework", "react")
     if framework not in ("react", "flask"):
         return jsonify({"error": "framework must be 'react' or 'flask'"}), 400
-    ws = WorkspaceManager.create(current_user["id"], framework)
+
+    name = data.get("name") or f"My {framework.title()} App"
+    config = {
+        "docker_os":  data.get("docker_os", "alpine"),
+        "memory_mb":  int(data.get("memory_mb", 512)),
+        "cpu_cores":  int(data.get("cpu_cores", 1)),
+    }
+
+    # Create files on disk
+    meta = WorkspaceManager.create(current_user["id"], framework)
+    ws_id = meta["id"]
+
+    # Detect version after scaffold is in place
+    version = WorkspaceManager.detect_framework_version(ws_id, framework)
+    config["framework_version"] = version
+
+    # Persist to MongoDB
+    ws = WorkspaceModel.create(ws_id, current_user["id"], framework, name, config)
+    return jsonify(ws), 201
+
+
+@app.route("/api/workspace/clone", methods=["POST"])
+@token_required
+def clone_workspace(current_user):
+    """Clone a git repo and register as a workspace."""
+    data = request.json or {}
+    git_url = data.get("url", "").strip()
+    if not git_url:
+        return jsonify({"error": "url is required"}), 400
+
+    name = data.get("name", "").strip()
+    try:
+        meta = WorkspaceManager.clone_repo(git_url, current_user["id"], name)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 400
+
+    ws_id = meta["id"]
+    framework = meta["framework"]
+    version = WorkspaceManager.detect_framework_version(ws_id, framework)
+    config = {"framework_version": version, "docker_os": "alpine", "memory_mb": 512, "cpu_cores": 1}
+    ws = WorkspaceModel.create(ws_id, current_user["id"], framework, meta["name"], config, git_url=git_url)
     return jsonify(ws), 201
 
 
 @app.route("/api/workspace/<ws_id>", methods=["GET"])
 @token_required
 def get_workspace(current_user, ws_id):
-    info = WorkspaceManager.get_info(ws_id)
-    if not info:
+    ws = WorkspaceModel.get_by_id(ws_id)
+    if not ws:
         return jsonify({"error": "Workspace not found"}), 404
-    return jsonify(info), 200
+    return jsonify(ws), 200
+
+
+@app.route("/api/workspace/<ws_id>", methods=["PATCH"])
+@token_required
+def update_workspace(current_user, ws_id):
+    """Update workspace name, docker_os, memory_mb, cpu_cores."""
+    if not WorkspaceModel.exists(ws_id):
+        return jsonify({"error": "Workspace not found"}), 404
+    data = request.json or {}
+    updated = WorkspaceModel.update(ws_id, data)
+    return jsonify(updated), 200
+
+
+@app.route("/api/workspace/<ws_id>", methods=["DELETE"])
+@token_required
+def delete_workspace(current_user, ws_id):
+    """Delete workspace from MongoDB and disk files."""
+    import shutil
+    ws = WorkspaceModel.get_by_id(ws_id)
+    if not ws or ws["user_id"] != current_user["id"]:
+        return jsonify({"error": "Workspace not found or access denied"}), 404
+    WorkspaceModel.delete(ws_id)
+    ws_path = WorkspaceManager._ws_path(ws_id)
+    shutil.rmtree(ws_path, ignore_errors=True)
+    return jsonify({"success": True}), 200
+
+
+@app.route("/api/workspace/<ws_id>/version", methods=["GET"])
+@token_required
+def detect_ws_version(current_user, ws_id):
+    ws = WorkspaceModel.get_by_id(ws_id)
+    if not ws:
+        return jsonify({"error": "Not found"}), 404
+    version = WorkspaceManager.detect_framework_version(ws_id, ws["framework"])
+    if version:
+        WorkspaceModel.update(ws_id, {"framework_version": version})
+    return jsonify({"version": version or "unknown"}), 200
 
 
 @app.route("/api/workspace/<ws_id>/files", methods=["GET"])
@@ -451,13 +543,15 @@ def write_ws_file(current_user, ws_id):
     result = WorkspaceManager.write_file(ws_id, path, content)
     if "error" in result:
         return jsonify(result), 400
+    # Touch updated_at in MongoDB
+    WorkspaceModel.update(ws_id, {})
     return jsonify(result), 200
 
 
 @app.route("/api/workspace/<ws_id>/exec", methods=["POST"])
 @token_required
 def exec_ws_command(current_user, ws_id):
-    if not WorkspaceManager.get_info(ws_id):
+    if not WorkspaceModel.exists(ws_id):
         return jsonify({"error": "Workspace not found"}), 404
     data = request.json or {}
     command = data.get("command", "").strip()
@@ -468,75 +562,154 @@ def exec_ws_command(current_user, ws_id):
     return jsonify(result), 200
 
 
-@app.route("/api/workspace/<ws_id>/agent", methods=["POST"])
-@token_required
-def workspace_agent(current_user, ws_id):
-    """Agentic AI endpoint — calls Ollama/LM Studio with tool definitions,
-    parses JSON actions, executes writeFile/runCommand/readFile, returns results."""
-    info = WorkspaceManager.get_info(ws_id)
-    if not info:
-        return jsonify({"error": "Workspace not found"}), 404
+# ── Agent mode system prompts ──────────────────────────────────────────────
 
-    data = request.json or {}
-    user_message = data.get("message", "")
-    history = data.get("history", [])  # [{role, content}, ...]
-
-    # Load user's AI config (we use their Ollama / LM Studio setup)
-    user_db = UserModel.get_user_by_id(current_user["id"])
-    provider   = user_db.get("ai_provider") or "ollama"
-    model      = user_db.get("ai_model")    or "llama3.2"
-    ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:1234/v1")
-
-    # Build file context
-    file_list = WorkspaceManager.flat_file_list(ws_id)
-    file_summary = ", ".join(file_list[:40]) or "(empty)"
-    fw = info.get("framework", "react")
-
-    system_prompt = f"""You are an expert {fw.upper()} developer AI inside CompileX Labs IDE.
-Framework: {fw}  |  Project files: {file_summary}
-
-You have these tools:
-- writeFile(path, content) — create or update a file
+def _agent_system_prompt(fw: str, file_summary: str, mode: str) -> str:
+    tool_def = """You have these tools:
+- writeFile(path, content) — create or update a file (COMPLETE content, no shortcuts)
 - runCommand(command)      — run a shell command in the project root
 - readFile(path)           — read a file's current content
 
-CRITICAL: Respond ONLY with valid JSON — no markdown, no code fences, just raw JSON:
-{{
-  "reply": "Brief, friendly explanation of what you did.",
+CRITICAL: Respond ONLY with valid JSON — no markdown, no code fences, no extra text:
+{
+  "reply": "Friendly explanation of what you did or found.",
   "actions": [
-    {{"type": "writeFile", "path": "src/Button.jsx", "content": "...full file content..."}},
-    {{"type": "runCommand", "command": "npm install axios"}},
-    {{"type": "readFile",   "path": "src/App.jsx"}}
+    {"type": "writeFile", "path": "src/Login.jsx", "content": "...full content..."},
+    {"type": "runCommand", "command": "npm install axios"},
+    {"type": "readFile",   "path": "src/App.jsx"}
   ]
-}}
-
-Rules:
-- Write COMPLETE, working code — no placeholders, no '// ...' shortcuts.
-- File paths are relative to the project root (e.g. src/Login.jsx).
-- If no actions are needed, use an empty array: "actions": []
-- NEVER wrap your response in markdown or code blocks.
+}
+Rules: paths are relative to project root, write COMPLETE working code, if no actions needed use [].
 """
 
-    # Build messages for the API call
+    if mode == "think":
+        preamble = f"""You are a senior {fw.upper()} architect inside CompileX Labs.
+Your job is to THINK DEEPLY before acting. Reason step by step about the best solution.
+Project files: {file_summary}
+{tool_def}
+In your "reply" field, show your reasoning chain before listing actions."""
+
+    elif mode == "plan":
+        preamble = f"""You are a senior {fw.upper()} developer inside CompileX Labs.
+PLANNING MODE: First create a numbered implementation plan in your reply, then execute it step by step.
+Project files: {file_summary}
+{tool_def}
+Format your "reply" as: "Plan:\\n1. ...\\n2. ...\\n\\nExecuting..."
+Then list all action steps needed to complete this plan."""
+
+    else:  # "code" (default)
+        preamble = f"""You are an expert {fw.upper()} developer AI inside CompileX Labs IDE.
+Project files: {file_summary}
+{tool_def}"""
+
+    return preamble
+
+
+@app.route("/api/workspace/<ws_id>/agent", methods=["POST"])
+@token_required
+def workspace_agent(current_user, ws_id):
+    """Agentic AI endpoint — multi-provider, multi-model, multi-mode.
+    Accepts: provider, model, mode (think/plan/code) in request body.
+    Falls back to user's saved AI settings if not provided."""
+    ws = WorkspaceModel.get_by_id(ws_id)
+    if not ws:
+        return jsonify({"error": "Workspace not found"}), 404
+
+    data         = request.json or {}
+    user_message = data.get("message", "")
+    history      = data.get("history", [])
+    mode         = data.get("mode", "code")   # think | plan | code
+
+    # Provider/model: request overrides > user's saved settings > defaults
+    user_db   = UserModel.get_user_by_id(current_user["id"])
+    provider  = data.get("provider") or user_db.get("ai_provider") or "ollama"
+    model     = data.get("model")    or user_db.get("ai_model")    or "llama3.2"
+
+    # Decrypt the API key for this provider
+    api_key = ""
+    encrypted = user_db.get("ai_key_encrypted", "")
+    if encrypted:
+        try:
+            api_key = decrypt_key(encrypted)
+        except Exception:
+            pass
+
+    # If request sends a fresh key (inline prompt case), save it and use it
+    inline_key = data.get("api_key", "")
+    if inline_key:
+        try:
+            UserModel.update_ai_config(current_user["id"], {
+                "ai_provider": provider,
+                "ai_model":    model,
+                "ai_key_encrypted": encrypt_key(inline_key),
+            })
+            api_key = inline_key
+        except Exception:
+            pass
+
+    # Build AI context
+    file_list    = WorkspaceManager.flat_file_list(ws_id)
+    file_summary = ", ".join(file_list[:40]) or "(empty)"
+    fw           = ws.get("framework", "react")
+    system_prompt = _agent_system_prompt(fw, file_summary, mode)
+
     api_messages = [{"role": "system", "content": system_prompt}]
-    for msg in history[-10:]:
-        role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
+    for msg in history[-12:]:
+        role = "assistant" if msg.get("role") in ("model", "assistant") else "user"
         api_messages.append({"role": role, "content": msg.get("content", "")})
     api_messages.append({"role": "user", "content": user_message})
 
+    # ── Call the AI provider ───────────────────────────────────────────────
+    raw_content = ""
     try:
         import requests as req
-        resp = req.post(
-            f"{ollama_base}/chat/completions",
-            json={"model": model, "messages": api_messages, "stream": False},
-            timeout=180
-        )
-        resp.raise_for_status()
-        raw_content = resp.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        return jsonify({"reply": f"⚠️ AI error: {str(e)[:300]}", "actions": [], "executed": []}), 200
 
-    # Parse JSON from the response (be lenient)
+        if provider == "ollama":
+            base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:1234/v1")
+            resp = req.post(
+                f"{base}/chat/completions",
+                json={"model": model, "messages": api_messages, "stream": False},
+                timeout=180
+            )
+            resp.raise_for_status()
+            raw_content = resp.json()["choices"][0]["message"]["content"]
+
+        elif provider == "gemini":
+            from google import genai as gai
+            from google.genai import types as gtypes
+            client = gai.Client(api_key=api_key)
+            history_g = []
+            for m in api_messages[1:-1]:
+                role = "user" if m["role"] == "user" else "model"
+                history_g.append(gtypes.Content(role=role, parts=[gtypes.Part(text=m["content"])]))
+            full_user = f"{system_prompt}\n\nUser: {user_message}"
+            history_g.append(gtypes.Content(role="user", parts=[gtypes.Part(text=full_user)]))
+            r = client.models.generate_content(model=model, contents=history_g)
+            raw_content = r.text
+
+        elif provider in ("openai", "deepseek"):
+            from openai import OpenAI
+            base_url = "https://api.deepseek.com" if provider == "deepseek" else None
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            r = client.chat.completions.create(model=model, messages=api_messages)
+            raw_content = r.choices[0].message.content
+
+        elif provider == "anthropic":
+            import anthropic as ant
+            client = ant.Anthropic(api_key=api_key)
+            ant_msgs = [{"role": m["role"] if m["role"] != "model" else "assistant", "content": m["content"]}
+                        for m in api_messages[1:]]
+            r = client.messages.create(model=model, max_tokens=8192,
+                                       system=system_prompt, messages=ant_msgs)
+            raw_content = r.content[0].text
+
+        else:
+            return jsonify({"reply": f"⚠️ Unknown provider: {provider}", "actions": [], "executed": []}), 200
+
+    except Exception as e:
+        return jsonify({"reply": f"⚠️ AI error ({provider}/{model}): {str(e)[:400]}", "actions": [], "executed": []}), 200
+
+    # ── Parse JSON response ────────────────────────────────────────────────
     parsed = None
     try:
         parsed = json.loads(raw_content)
@@ -551,8 +724,8 @@ Rules:
     if not parsed:
         return jsonify({"reply": raw_content, "actions": [], "executed": []}), 200
 
-    reply   = parsed.get("reply", "")
-    actions = parsed.get("actions", [])
+    reply    = parsed.get("reply", "")
+    actions  = parsed.get("actions", [])
     executed = []
 
     for action in actions:

@@ -428,16 +428,24 @@ class WorkspaceManager:
             return {"error": str(e)}
 
     @staticmethod
-    def exec_command(ws_id: str, command: str, cwd_rel: str = "") -> dict:
+    def exec_command(ws_id: str, command: str, cwd_rel: str = "", dev_mode: bool = False) -> dict:
         import threading, queue as _queue, time as _time, copy
 
         ws_root = WorkspaceManager._ws_path(ws_id)
         try:
-            if cwd_rel:
-                safe, _ = WorkspaceManager._safe_path(ws_id, cwd_rel)
-                cwd = safe if os.path.isdir(safe) else ws_root
-            else:
+            if dev_mode:
+                # "Dev Mode" complete access: runs in the workspace root by default
+                # but does not strictly restrict paths to the workspace sandbox.
                 cwd = ws_root
+                if cwd_rel:
+                    cwd = os.path.abspath(os.path.join(cwd, cwd_rel))
+            else:
+                if cwd_rel:
+                    safe, _ = WorkspaceManager._safe_path(ws_id, cwd_rel)
+                    cwd = safe if os.path.isdir(safe) else ws_root
+                else:
+                    cwd = ws_root
+
 
             # Clean env — strip Flask/Werkzeug socket vars so child processes
             # don't inherit the parent's socket FD (avoids WinError 10038).

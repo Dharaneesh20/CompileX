@@ -7,8 +7,8 @@ import {
     FaTerminal, FaRobot, FaSave, FaSync, FaCheckCircle,
     FaFile, FaJs, FaPython, FaHtml5, FaCss3Alt, FaMarkdown,
     FaChevronRight, FaChevronDown, FaSpinner, FaStop,
-    FaGitAlt, FaBrain, FaListUl, FaCog, FaServer,
-    FaMemory, FaMicrochip, FaDocker, FaPlay, FaKey
+    FaGitAlt, FaBrain, FaListUl, FaCog, FaServer, FaGlobe,
+    FaMemory, FaMicrochip, FaDocker, FaPlay, FaKey, FaExternalLinkAlt
 } from 'react-icons/fa';
 import { SiJson, SiTypescript, SiFlask, SiReact } from 'react-icons/si';
 import { useAuth } from '../context/AuthContext';
@@ -130,6 +130,19 @@ export default function FrameworkIDE() {
     const [saving, setSaving] = useState(false);
     const [savedFlash, setSavedFlash] = useState(false);
 
+    // Sidebar & View options
+    const [sidebarView, setSidebarView] = useState('explorer'); // 'explorer' | 'git'
+    const [layoutStyle, setLayoutStyle] = useState('vscode');   // 'vscode' | 'custom'
+    const [devMode, setDevMode] = useState(false);              // root backend terminal access
+    const [showPreview, setShowPreview] = useState(false);
+    const [previewUrl, setPreviewUrl] = useState('http://localhost:5174');
+
+    // Git State
+    const [gitData, setGitData] = useState({ changes: [], branch: 'main' });
+    const [gitInput, setGitInput] = useState('');
+    const [gitLoading, setGitLoading] = useState(false);
+    const [gitError, setGitError] = useState(null);
+
     // Terminals
     const [terminals, setTerminals] = useState([{ id: 1, name: 'Terminal 1', history: [], input: '', running: false }]);
     const [activeTerm, setActiveTerm] = useState(0);
@@ -161,6 +174,31 @@ export default function FrameworkIDE() {
 
     const refreshTree = async (id) => {
         try { const r = await api.get(`/workspace/${id}/files`); setFileTree(r.data.tree || []); } catch { }
+        refreshGit(id);
+    };
+
+    const refreshGit = async (id) => {
+        try {
+            const r = await api.post(`/workspace/${id || workspace?.id}/git`, { action: 'status' });
+            setGitData(r.data);
+            setGitError(null);
+        } catch (e) {
+            setGitError(e.response?.data?.error || e.message);
+        }
+    };
+
+    const handleGitOps = async (action) => {
+        if (!workspace) return;
+        setGitLoading(true); setGitError(null);
+        try {
+            await api.post(`/workspace/${workspace.id}/git`, { action, message: gitInput || 'Update' });
+            if (action === 'commit') setGitInput('');
+            refreshGit(workspace.id);
+        } catch (e) {
+            setGitError(e.response?.data?.error || e.message);
+        } finally {
+            setGitLoading(false);
+        }
     };
 
     // ── File ops ─────────────────────────────────────────────────────────────
@@ -216,7 +254,7 @@ export default function FrameworkIDE() {
         const cmd = term.input.trim();
         setTerminals(prev => prev.map((t, i) => i === idx ? { ...t, input: '', running: true, history: [...t.history, { cmd, out: '', status: 'running' }] } : t));
         try {
-            const r = await api.post(`/workspace/${workspace.id}/exec`, { command: cmd });
+            const r = await api.post(`/workspace/${workspace.id}/exec`, { command: cmd, dev_mode: devMode });
             const combined = ((r.data.stdout || '') + (r.data.stderr || '')).trimEnd();
             // Backend returns status:'running' for long-lived servers (still alive after 8s)
             const histStatus = r.data.status === 'running' ? 'background' : r.data.status;
@@ -334,6 +372,16 @@ export default function FrameworkIDE() {
                     <button onClick={saveCurrentFile} disabled={!activeTab || saving} style={{ ...btn, gap: 5, fontSize: 11, color: savedFlash ? '#4ade80' : '#94a3b8' }}>
                         {savedFlash ? <FaCheckCircle size={11} /> : <FaSave size={11} />} {saving ? 'Saving…' : savedFlash ? 'Saved!' : 'Save'}
                     </button>
+
+                    <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.08)' }} />
+                    <button onClick={() => setLayoutStyle(prev => prev === 'vscode' ? 'custom' : 'vscode')} style={{ ...btn, padding: '5px 8px', color: layoutStyle === 'vscode' ? '#a78bfa' : '#64748b' }} title="Toggle Layout">
+                        {layoutStyle === 'vscode' ? 'VS Code Layout' : 'CompileX Layout'}
+                    </button>
+
+                    <button onClick={() => setDevMode(!devMode)} style={{ ...btn, padding: '5px 8px', color: devMode ? '#ef4444' : '#64748b', borderColor: devMode ? 'rgba(239,68,68,0.3)' : undefined, background: devMode ? 'rgba(239,68,68,0.1)' : undefined }} title="Dev Mode unlocks complete terminal access to the backend root directory">
+                        {devMode ? 'Dev Mode (Root)' : 'Safe Mode'}
+                    </button>
+
                     <button onClick={() => workspace && refreshTree(workspace.id)} style={{ ...btn, padding: '5px 8px', color: '#64748b' }}><FaSync size={11} /></button>
                 </div>
             </div>
@@ -361,224 +409,518 @@ export default function FrameworkIDE() {
                 </div>
             )}
 
-            {/* ── 3-column main layout ─────────────────────────────────────── */}
+            {/* ── Main layout switch ─────────────────────────────────────── */}
             <div style={{ flex: 1, display: 'flex', overflow: 'hidden', padding: 4, gap: 4 }}>
+
+                {/* Left Activity Bar */}
+                <div style={{ width: 48, background: '#111827', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0', gap: 16 }}>
+                    <div onClick={() => setSidebarView('explorer')} style={{ cursor: 'pointer', padding: 8, borderRadius: 8, background: sidebarView === 'explorer' ? 'rgba(99,102,241,0.15)' : 'transparent', color: sidebarView === 'explorer' ? '#c7d2fe' : '#64748b' }}>
+                        <FaFolderOpen size={18} />
+                    </div>
+                    <div onClick={() => setSidebarView('git')} style={{ cursor: 'pointer', padding: 8, borderRadius: 8, background: sidebarView === 'git' ? 'rgba(99,102,241,0.15)' : 'transparent', color: sidebarView === 'git' ? '#c7d2fe' : '#64748b', position: 'relative' }}>
+                        <FaGitAlt size={18} />
+                        {gitData.changes.length > 0 && <div style={{ position: 'absolute', top: 4, right: 2, background: '#ef4444', color: '#fff', fontSize: 9, fontWeight: 800, borderRadius: 99, padding: '1px 5px' }}>{gitData.changes.length}</div>}
+                    </div>
+                </div>
+
                 <Group direction="horizontal" style={{ width: '100%', height: '100%' }}>
 
-                    {/* ① File Explorer */}
-                    <Panel defaultSize={16} minSize={12} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: 1.2, borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>Explorer</div>
+                    {/* ① Sidebar (Explorer or Git) */}
+                    <Panel defaultSize={layoutStyle === 'vscode' ? 18 : 16} minSize={12} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: 1.2, borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            {sidebarView === 'explorer' ? 'Explorer' : 'Source Control'}
+                            {sidebarView === 'git' && <span style={badge}>{gitData.branch}</span>}
+                        </div>
+
                         <div style={{ flex: 1, overflowY: 'auto', paddingTop: 4 }}>
-                            <FileTree nodes={fileTree} expanded={expanded}
-                                onToggle={p => setExpanded(prev => { const s = new Set(prev); s.has(p) ? s.delete(p) : s.add(p); return s; })}
-                                onOpen={handleFileOpen} activeFile={activeTab} />
+                            {sidebarView === 'explorer' ? (
+                                <FileTree nodes={fileTree} expanded={expanded}
+                                    onToggle={p => setExpanded(prev => { const s = new Set(prev); s.has(p) ? s.delete(p) : s.add(p); return s; })}
+                                    onOpen={handleFileOpen} activeFile={activeTab} />
+                            ) : (
+                                <div style={{ padding: 12 }}>
+                                    <input value={gitInput} onChange={e => setGitInput(e.target.value)} placeholder="Message (Enter to commit)" onKeyDown={e => e.key === 'Enter' && handleGitOps('commit')} style={{ ...inp, padding: '6px 10px', fontSize: 11, marginBottom: 8 }} />
+                                    <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+                                        <button onClick={() => handleGitOps('commit')} disabled={gitLoading} style={{ ...btn, flex: 1, padding: '4px', fontSize: 10, justifyContent: 'center' }}>Commit</button>
+                                        <button onClick={() => handleGitOps('push')} disabled={gitLoading} style={{ ...btn, flex: 1, padding: '4px', fontSize: 10, justifyContent: 'center' }}>Push</button>
+                                        <button onClick={() => handleGitOps('pull')} disabled={gitLoading} style={{ ...btn, flex: 1, padding: '4px', fontSize: 10, justifyContent: 'center' }}>Pull</button>
+                                    </div>
+                                    {gitError && <div style={{ color: '#fca5a5', fontSize: 10, marginBottom: 10, padding: 8, background: 'rgba(239,68,68,0.1)', borderRadius: 6 }}>{gitError}</div>}
+
+                                    <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 8 }}>CHANGES ({gitData.changes.length})</div>
+                                    {gitData.changes.length === 0 ? (
+                                        <div style={{ fontSize: 11, color: '#475569', textAlign: 'center', marginTop: 20 }}>No changes</div>
+                                    ) : (
+                                        gitData.changes.map((c, i) => (
+                                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                                <span style={{ color: c.status.includes('M') ? '#f59e0b' : c.status.includes('D') ? '#ef4444' : '#4ade80', fontWeight: 800, width: 14 }}>{c.status.trim() || 'A'}</span>
+                                                <span style={{ color: '#c7d2fe', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.file}</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </Panel>
 
                     <Separator onDragging={() => editorRef.current?.layout?.()} style={{ width: 4, cursor: 'col-resize', flexShrink: 0 }} />
 
-                    {/* ② Editor + Terminal */}
-                    <Panel defaultSize={57} minSize={30} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 4 }}>
-                        <Group direction="vertical" style={{ height: '100%' }}>
-                            {/* Editor */}
-                            <Panel defaultSize={65} minSize={25} style={{ display: 'flex', flexDirection: 'column', background: '#0d0d1a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                {/* Tab bar */}
-                                <div style={{ display: 'flex', alignItems: 'center', background: '#111827', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, minHeight: 36, overflowX: 'auto' }}>
-                                    <div style={{ display: 'flex', gap: 5, padding: '0 10px', flexShrink: 0 }}>
-                                        {['#ff5f57', '#febc2e', '#28c840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
+                    {/* ② Editor / Terminal / Agent wrappers based on Layout Style */}
+                    {layoutStyle === 'vscode' ? (
+                        <>
+                            {/* VS Code Style: Editor Top, Terminal Bottom in center panel, Agent on right */}
+                            <Panel defaultSize={55} minSize={30} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 4 }}>
+                                <Group direction="vertical" style={{ height: '100%' }}>
+                                    <Panel defaultSize={70} minSize={25} style={{ display: 'flex', flexDirection: 'column', background: '#0d0d1a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                        {/* Editor Content */}
+
+                                        <div style={{ display: 'flex', alignItems: 'center', background: '#111827', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, minHeight: 36, overflowX: 'auto', justifyContent: 'space-between' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                <div style={{ display: 'flex', gap: 5, padding: '0 10px', flexShrink: 0 }}>
+                                                    {['#ff5f57', '#febc2e', '#28c840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
+                                                </div>
+                                                {tabs.length === 0 && <span style={{ color: '#334155', fontSize: 11, padding: '0 12px' }}>Click a file to open →</span>}
+                                                {tabs.map(tab => (
+                                                    <div key={tab.path} onClick={() => setActiveTab(tab.path)}
+                                                        style={{
+                                                            display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 36, cursor: 'pointer', flexShrink: 0, fontSize: 12, whiteSpace: 'nowrap',
+                                                            background: activeTab === tab.path ? '#0d0d1a' : 'transparent',
+                                                            borderRight: '1px solid rgba(255,255,255,0.06)',
+                                                            borderBottom: activeTab === tab.path ? '2px solid #6366f1' : '2px solid transparent',
+                                                            color: activeTab === tab.path ? '#e2e8f0' : '#475569'
+                                                        }}>
+                                                        <FileIcon name={tab.name} size={11} />
+                                                        {tab.dirty && <span style={{ color: '#f59e0b', fontSize: 8 }}>●</span>}
+                                                        {tab.name}
+                                                        <span onClick={e => closeTab(tab.path, e)} style={{ color: '#475569', marginLeft: 2, lineHeight: 0 }}><FaTimes size={9} /></span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div style={{ paddingRight: 10 }}>
+                                                <button onClick={() => setShowPreview(!showPreview)} style={{ ...btn, padding: '3px 8px', fontSize: 10, color: showPreview ? '#60a5fa' : '#64748b', background: showPreview ? 'rgba(96,165,250,0.1)' : 'transparent' }}>
+                                                    <FaGlobe size={10} /> Web Preview
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+                                            <div style={{ flex: 1, height: '100%', position: 'relative' }}>
+                                                {currentTab ? (
+                                                    <Editor height="100%" language={currentTab.language} theme="vs-dark" value={currentTab.content}
+                                                        onChange={v => updateTabContent(activeTab, v)} onMount={e => { editorRef.current = e; }}
+                                                        options={{ minimap: { enabled: false }, fontSize: 13, fontFamily: "'Fira Code','JetBrains Mono',monospace", fontLigatures: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorBlinking: 'smooth', bracketPairColorization: { enabled: true }, lineNumbersMinChars: 3 }} />
+                                                ) : (
+                                                    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: .25 }}>
+                                                        <FaCode size={36} color="#6366f1" />
+                                                        <p style={{ fontSize: 12, color: '#64748b' }}>Select a file from the explorer</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Preview Side */}
+                                            {showPreview && (
+                                                <div style={{ flex: 1, height: '100%', borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', gap: 8 }}>
+                                                        <button onClick={() => { const i = document.getElementById('preview-frame-custom'); if (i) i.src = i.src; }} style={{ ...btn, color: '#475569', padding: 4 }}><FaSync size={10} /></button>
+                                                        <input value={previewUrl} onChange={e => setPreviewUrl(e.target.value)} style={{ flex: 1, padding: '4px 8px', borderRadius: 4, border: '1px solid #cbd5e1', fontSize: 11, color: '#334155' }} />
+                                                        <a href={previewUrl} target="_blank" rel="noreferrer" style={{ color: '#475569', padding: 4 }}><FaExternalLinkAlt size={10} /></a>
+                                                    </div>
+                                                    <iframe id="preview-frame-custom" src={previewUrl} style={{ width: '100%', flex: 1, border: 'none', background: '#fff' }} title="Preview" />
+                                                </div>
+                                            )}
+                                        </div>                    </Panel>
+
+                                    <Separator onDragging={() => editorRef.current?.layout?.()} style={{ height: 4, cursor: 'row-resize', flexShrink: 0 }} />
+
+                                    {/* Terminal */}
+                                    <Panel defaultSize={35} minSize={15} style={{ display: 'flex', flexDirection: 'column', background: '#0a0a14', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', background: '#111827', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, height: 32, overflowX: 'auto' }}>
+                                            <FaTerminal size={10} color="#6366f1" style={{ margin: '0 8px', flexShrink: 0 }} />
+                                            {terminals.map((t, i) => (
+                                                <div key={t.id} onClick={() => setActiveTerm(i)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', height: 32, cursor: 'pointer', flexShrink: 0, fontSize: 11, whiteSpace: 'nowrap', background: activeTerm === i ? '#0a0a14' : 'transparent', borderRight: '1px solid rgba(255,255,255,0.05)', color: activeTerm === i ? '#4ade80' : '#475569' }}>
+                                                    {t.name}
+                                                    {terminals.length > 1 && <span onClick={e => removeTerminal(i, e)}><FaTimes size={8} /></span>}
+                                                </div>
+                                            ))}
+                                            <button onClick={addTerminal} style={{ ...btn, padding: '0 10px', height: 32, color: '#475569', flexShrink: 0 }}><FaPlus size={9} /></button>
+                                        </div>
+                                        {terminals[activeTerm] && (
+                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                                <div ref={termScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', fontFamily: "'Fira Code','Courier New',monospace", fontSize: 12 }}>
+                                                    <div style={{ color: '#4ade80', marginBottom: 8, fontSize: 10 }}>CompileX Terminal — {workspace?.name}</div>
+                                                    {terminals[activeTerm].history.map((h, i) => (
+                                                        <div key={i} style={{ marginBottom: 8 }}>
+                                                            <div style={{ color: '#818cf8' }}>$ {h.cmd}</div>
+                                                            {h.status === 'running'
+                                                                ? <div style={{ color: '#475569', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}><FaSpinner size={9} style={{ animation: 'spin 1s linear infinite' }} /> Running…</div>
+                                                                : h.status === 'background'
+                                                                    ? <div>
+                                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#4ade80', marginBottom: 4 }}>
+                                                                            <FaServer size={8} /> Server running in background {h.pid && `(PID ${h.pid})`}
+                                                                        </div>
+                                                                        {h.out && <pre style={{ margin: 0, color: '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>}
+                                                                    </div>
+                                                                    : <pre style={{ margin: 0, color: h.status === 'error' ? '#fca5a5' : '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>
+                                                            }
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+                                                    <span style={{ color: '#4ade80', fontFamily: 'monospace', fontSize: 13, flexShrink: 0 }}>$</span>
+                                                    <input value={terminals[activeTerm].input} onChange={e => updateTermInput(activeTerm, e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter') runTermCommand(activeTerm); }}
+                                                        disabled={terminals[activeTerm].running}
+                                                        placeholder={terminals[activeTerm].running ? 'Running…' : 'Type a command and press Enter'}
+                                                        style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontFamily: "'Fira Code',monospace", fontSize: 12 }} />
+                                                    {terminals[activeTerm].running && <FaSpinner size={11} color="#475569" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </Panel>
+                                </Group>
+                            </Panel>
+
+                            <Separator onDragging={() => editorRef.current?.layout?.()} style={{ width: 4, cursor: 'col-resize', flexShrink: 0 }} />
+
+                            {/* Agent Panel on the far right */}
+                            <Panel defaultSize={27} minSize={20} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)', overflow: 'hidden' }}>
+                                {/* Agent inner content below */}
+
+                                <div style={{ padding: '10px 12px', background: 'rgba(99,102,241,0.07)', borderBottom: '1px solid rgba(99,102,241,0.15)', flexShrink: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                        <div style={{ width: 26, height: 26, borderRadius: 7, background: 'linear-gradient(135deg,#6366f1,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <FaRobot size={12} color="#fff" />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ color: '#c7d2fe', fontSize: 12, fontWeight: 700 }}>AI Agent</div>
+                                            <div style={{ color: '#6366f180', fontSize: 9 }}>Agentic · Multi-model</div>
+                                        </div>
+                                        {agentRunning && (
+                                            <button onClick={stopAgent} style={{ ...btn, padding: '3px 8px', fontSize: 10, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', gap: 4 }}>
+                                                <FaStop size={8} /> Stop
+                                            </button>
+                                        )}
                                     </div>
-                                    {tabs.length === 0 && <span style={{ color: '#334155', fontSize: 11, padding: '0 12px' }}>Click a file to open →</span>}
-                                    {tabs.map(tab => (
-                                        <div key={tab.path} onClick={() => setActiveTab(tab.path)}
-                                            style={{
-                                                display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 36, cursor: 'pointer', flexShrink: 0, fontSize: 12, whiteSpace: 'nowrap',
-                                                background: activeTab === tab.path ? '#0d0d1a' : 'transparent',
-                                                borderRight: '1px solid rgba(255,255,255,0.06)',
-                                                borderBottom: activeTab === tab.path ? '2px solid #6366f1' : '2px solid transparent',
-                                                color: activeTab === tab.path ? '#e2e8f0' : '#475569'
+                                    {/* Provider + Model selectors */}
+                                    <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                        <select value={agentProvider} onChange={e => { setAgentProvider(e.target.value); setAgentModel(PROVIDERS[e.target.value]?.models[0] || ''); }}
+                                            style={{ ...inp, flex: 1, fontSize: 10, padding: '4px 6px', height: 28 }}>
+                                            {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                        </select>
+                                        <select value={agentModel} onChange={e => setAgentModel(e.target.value)}
+                                            style={{ ...inp, flex: 1.2, fontSize: 10, padding: '4px 6px', height: 28 }}>
+                                            {(PROVIDERS[agentProvider]?.models || []).map(m => <option key={m} value={m}>{m}</option>)}
+                                        </select>
+                                    </div>
+                                    {/* Mode pills */}
+                                    <div style={{ display: 'flex', gap: 4 }}>
+                                        {[['think', '🧠 Think', FaBrain], ['plan', '📋 Plan', FaListUl], ['code', '⚡ Code', FaCode]].map(([m, label]) => (
+                                            <button key={m} onClick={() => setAgentMode(m)} style={{
+                                                ...btn, flex: 1, padding: '3px 0', fontSize: 9, justifyContent: 'center',
+                                                background: agentMode === m ? 'rgba(99,102,241,0.3)' : 'transparent',
+                                                color: agentMode === m ? '#c7d2fe' : '#64748b',
+                                                borderColor: agentMode === m ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.07)'
                                             }}>
-                                            <FileIcon name={tab.name} size={11} />
-                                            {tab.dirty && <span style={{ color: '#f59e0b', fontSize: 8 }}>●</span>}
-                                            {tab.name}
-                                            <span onClick={e => closeTab(tab.path, e)} style={{ color: '#475569', marginLeft: 2, lineHeight: 0 }}><FaTimes size={9} /></span>
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Messages */}
+                                <div ref={agentScrollRef} style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {agentMessages.length === 0 && (
+                                        <div style={{ textAlign: 'center', paddingTop: 32, opacity: .45 }}>
+                                            <FaRobot size={26} color="#6366f1" style={{ marginBottom: 10 }} />
+                                            <p style={{ color: '#475569', fontSize: 11, lineHeight: 1.7 }}>
+                                                Ask the AI to build features.<br />
+                                                <span style={{ color: '#6366f1' }}>Try:</span><br />
+                                                "Add a login page"<br />
+                                                "Install axios and fetch data"<br />
+                                                "Run npm install"
+                                            </p>
+                                        </div>
+                                    )}
+                                    {agentMessages.map((msg, i) => (
+                                        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                                            <div style={{
+                                                maxWidth: '92%', padding: '8px 12px', fontSize: 12, lineHeight: 1.6,
+                                                borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                                                background: msg.role === 'user' ? 'linear-gradient(135deg,#6366f1,#818cf8)' : 'rgba(255,255,255,0.04)',
+                                                border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0'
+                                            }}>
+                                                {msg.content}
+                                            </div>
+                                            {msg.executed?.map((ex, j) => <ActionCard key={j} action={ex} />)}
                                         </div>
                                     ))}
+                                    {agentRunning && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10, fontSize: 12, color: '#818cf8' }}>
+                                            <FaSpinner size={11} style={{ animation: 'spin 1s linear infinite' }} /> Agent running…
+                                        </div>
+                                    )}
+                                    {/* Inline API key prompt */}
+                                    {showKeyPrompt && (
+                                        <div style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 10, padding: '10px 12px' }}>
+                                            <p style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><FaKey size={10} /> API Key required for {PROVIDERS[agentProvider]?.label}</p>
+                                            <input type="password" value={inlineKey} onChange={e => setInlineKey(e.target.value)} placeholder="Paste your API key…"
+                                                style={{ ...inp, fontSize: 11, marginBottom: 6 }} />
+                                            <p style={{ fontSize: 9, color: '#64748b' }}>Saved server-side (encrypted). Never stored in browser.</p>
+                                            <button onClick={sendAgentMessage} disabled={!inlineKey.trim()}
+                                                style={{ ...btn, marginTop: 4, background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', width: '100%', justifyContent: 'center', fontSize: 11 }}>
+                                                Save Key &amp; Send
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                                <div style={{ flex: 1, overflow: 'hidden' }}>
-                                    {currentTab ? (
-                                        <Editor height="100%" language={currentTab.language} theme="vs-dark" value={currentTab.content}
-                                            onChange={v => updateTabContent(activeTab, v)} onMount={e => { editorRef.current = e; }}
-                                            options={{ minimap: { enabled: false }, fontSize: 13, fontFamily: "'Fira Code','JetBrains Mono',monospace", fontLigatures: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorBlinking: 'smooth', bracketPairColorization: { enabled: true }, lineNumbersMinChars: 3 }} />
-                                    ) : (
-                                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: .25 }}>
-                                            <FaCode size={36} color="#6366f1" />
-                                            <p style={{ fontSize: 12, color: '#64748b' }}>Select a file from the explorer</p>
+
+                                {/* Input */}
+                                <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+                                    <div style={{ display: 'flex', gap: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 10px' }}>
+                                        <textarea value={agentInput} onChange={e => setAgentInput(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMessage(); } }}
+                                            placeholder="Ask AI to build something… (Enter to send)" disabled={agentRunning} rows={2}
+                                            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontSize: 12, resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }} />
+                                        <button onClick={sendAgentMessage} disabled={agentRunning || !agentInput.trim()}
+                                            style={{ ...btn, background: agentRunning || !agentInput.trim() ? 'rgba(99,102,241,0.2)' : 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', padding: '6px 10px', borderRadius: 8, alignSelf: 'flex-end' }}>
+                                            <FaPlay size={10} />
+                                        </button>
+                                    </div>
+                                    <p style={{ fontSize: 9, color: '#334155', marginTop: 6, textAlign: 'center' }}>Shift+Enter for newline · {PROVIDERS[agentProvider]?.label}</p>
+                                </div>
+                            </Panel>
+                        </>
+                    ) : (
+                        <>
+                            {/* Custom Layout Style: Editor Center, AI Agent + Terminal Stacked Right */}
+                            <Panel defaultSize={55} minSize={30} style={{ display: 'flex', flexDirection: 'column', background: '#0d0d1a', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                {/* Editor Content */}
+                                {/* Tab bar */}
+                                <div style={{ display: 'flex', alignItems: 'center', background: '#111827', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, minHeight: 36, overflowX: 'auto', justifyContent: 'space-between' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', gap: 5, padding: '0 10px', flexShrink: 0 }}>
+                                            {['#ff5f57', '#febc2e', '#28c840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
+                                        </div>
+                                        {tabs.length === 0 && <span style={{ color: '#334155', fontSize: 11, padding: '0 12px' }}>Click a file to open →</span>}
+                                        {tabs.map(tab => (
+                                            <div key={tab.path} onClick={() => setActiveTab(tab.path)}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', height: 36, cursor: 'pointer', flexShrink: 0, fontSize: 12, whiteSpace: 'nowrap',
+                                                    background: activeTab === tab.path ? '#0d0d1a' : 'transparent',
+                                                    borderRight: '1px solid rgba(255,255,255,0.06)',
+                                                    borderBottom: activeTab === tab.path ? '2px solid #6366f1' : '2px solid transparent',
+                                                    color: activeTab === tab.path ? '#e2e8f0' : '#475569'
+                                                }}>
+                                                <FileIcon name={tab.name} size={11} />
+                                                {tab.dirty && <span style={{ color: '#f59e0b', fontSize: 8 }}>●</span>}
+                                                {tab.name}
+                                                <span onClick={e => closeTab(tab.path, e)} style={{ color: '#475569', marginLeft: 2, lineHeight: 0 }}><FaTimes size={9} /></span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div style={{ paddingRight: 10 }}>
+                                        <button onClick={() => setShowPreview(!showPreview)} style={{ ...btn, padding: '3px 8px', fontSize: 10, color: showPreview ? '#60a5fa' : '#64748b', background: showPreview ? 'rgba(96,165,250,0.1)' : 'transparent' }}>
+                                            <FaGlobe size={10} /> Web Preview
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+                                    {/* Editor side */}
+                                    <div style={{ flex: 1, height: '100%', position: 'relative' }}>
+                                        {currentTab ? (
+                                            <Editor height="100%" language={currentTab.language} theme="vs-dark" value={currentTab.content}
+                                                onChange={v => updateTabContent(activeTab, v)} onMount={e => { editorRef.current = e; }}
+                                                options={{ minimap: { enabled: false }, fontSize: 13, fontFamily: "'Fira Code','JetBrains Mono',monospace", fontLigatures: true, padding: { top: 12 }, scrollBeyondLastLine: false, smoothScrolling: true, cursorBlinking: 'smooth', bracketPairColorization: { enabled: true }, lineNumbersMinChars: 3 }} />
+                                        ) : (
+                                            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, opacity: .25 }}>
+                                                <FaCode size={36} color="#6366f1" />
+                                                <p style={{ fontSize: 12, color: '#64748b' }}>Select a file from the explorer</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Preview Side */}
+                                    {showPreview && (
+                                        <div style={{ flex: 1, height: '100%', borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', background: '#fff' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', gap: 8 }}>
+                                                <button onClick={() => { const i = document.getElementById('preview-frame-custom2'); if (i) i.src = i.src; }} style={{ ...btn, color: '#475569', padding: 4 }}><FaSync size={10} /></button>
+                                                <input value={previewUrl} onChange={e => setPreviewUrl(e.target.value)} style={{ flex: 1, padding: '4px 8px', borderRadius: 4, border: '1px solid #cbd5e1', fontSize: 11, color: '#334155' }} />
+                                                <a href={previewUrl} target="_blank" rel="noreferrer" style={{ color: '#475569', padding: 4 }}><FaExternalLinkAlt size={10} /></a>
+                                            </div>
+                                            <iframe id="preview-frame-custom2" src={previewUrl} style={{ width: '100%', flex: 1, border: 'none', background: '#fff' }} title="Preview" />
                                         </div>
                                     )}
                                 </div>
                             </Panel>
 
-                            <Separator onDragging={() => editorRef.current?.layout?.()} style={{ height: 4, cursor: 'row-resize', flexShrink: 0 }} />
+                            <Separator onDragging={() => editorRef.current?.layout?.()} style={{ width: 4, cursor: 'col-resize', flexShrink: 0 }} />
 
-                            {/* Terminal */}
-                            <Panel defaultSize={35} minSize={15} style={{ display: 'flex', flexDirection: 'column', background: '#0a0a14', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', background: '#111827', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, height: 32, overflowX: 'auto' }}>
-                                    <FaTerminal size={10} color="#6366f1" style={{ margin: '0 8px', flexShrink: 0 }} />
-                                    {terminals.map((t, i) => (
-                                        <div key={t.id} onClick={() => setActiveTerm(i)}
-                                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', height: 32, cursor: 'pointer', flexShrink: 0, fontSize: 11, whiteSpace: 'nowrap', background: activeTerm === i ? '#0a0a14' : 'transparent', borderRight: '1px solid rgba(255,255,255,0.05)', color: activeTerm === i ? '#4ade80' : '#475569' }}>
-                                            {t.name}
-                                            {terminals.length > 1 && <span onClick={e => removeTerminal(i, e)}><FaTimes size={8} /></span>}
+                            {/* Stack AI Agent and Terminal on the right */}
+                            <Panel defaultSize={27} minSize={20} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <Group direction="vertical" style={{ height: '100%' }}>
+                                    {/* AI Agent Panel Top */}
+                                    <Panel defaultSize={60} minSize={30} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)', overflow: 'hidden' }}>
+                                        {/* Header + model selector */}
+                                        <div style={{ padding: '10px 12px', background: 'rgba(99,102,241,0.07)', borderBottom: '1px solid rgba(99,102,241,0.15)', flexShrink: 0 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                                <div style={{ width: 26, height: 26, borderRadius: 7, background: 'linear-gradient(135deg,#6366f1,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <FaRobot size={12} color="#fff" />
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ color: '#c7d2fe', fontSize: 12, fontWeight: 700 }}>AI Agent</div>
+                                                    <div style={{ color: '#6366f180', fontSize: 9 }}>Agentic · Multi-model</div>
+                                                </div>
+                                                {agentRunning && (
+                                                    <button onClick={stopAgent} style={{ ...btn, padding: '3px 8px', fontSize: 10, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', gap: 4 }}>
+                                                        <FaStop size={8} /> Stop
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {/* Provider + Model selectors */}
+                                            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                                <select value={agentProvider} onChange={e => { setAgentProvider(e.target.value); setAgentModel(PROVIDERS[e.target.value]?.models[0] || ''); }}
+                                                    style={{ ...inp, flex: 1, fontSize: 10, padding: '4px 6px', height: 28 }}>
+                                                    {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                                                </select>
+                                                <select value={agentModel} onChange={e => setAgentModel(e.target.value)}
+                                                    style={{ ...inp, flex: 1.2, fontSize: 10, padding: '4px 6px', height: 28 }}>
+                                                    {(PROVIDERS[agentProvider]?.models || []).map(m => <option key={m} value={m}>{m}</option>)}
+                                                </select>
+                                            </div>
+                                            {/* Mode pills */}
+                                            <div style={{ display: 'flex', gap: 4 }}>
+                                                {[['think', '🧠 Think', FaBrain], ['plan', '📋 Plan', FaListUl], ['code', '⚡ Code', FaCode]].map(([m, label]) => (
+                                                    <button key={m} onClick={() => setAgentMode(m)} style={{
+                                                        ...btn, flex: 1, padding: '3px 0', fontSize: 9, justifyContent: 'center',
+                                                        background: agentMode === m ? 'rgba(99,102,241,0.3)' : 'transparent',
+                                                        color: agentMode === m ? '#c7d2fe' : '#64748b',
+                                                        borderColor: agentMode === m ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.07)'
+                                                    }}>
+                                                        {label}
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
-                                    ))}
-                                    <button onClick={addTerminal} style={{ ...btn, padding: '0 10px', height: 32, color: '#475569', flexShrink: 0 }}><FaPlus size={9} /></button>
-                                </div>
-                                {terminals[activeTerm] && (
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                                        <div ref={termScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', fontFamily: "'Fira Code','Courier New',monospace", fontSize: 12 }}>
-                                            <div style={{ color: '#4ade80', marginBottom: 8, fontSize: 10 }}>CompileX Terminal — {workspace?.name}</div>
-                                            {terminals[activeTerm].history.map((h, i) => (
-                                                <div key={i} style={{ marginBottom: 8 }}>
-                                                    <div style={{ color: '#818cf8' }}>$ {h.cmd}</div>
-                                                    {h.status === 'running'
-                                                        ? <div style={{ color: '#475569', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}><FaSpinner size={9} style={{ animation: 'spin 1s linear infinite' }} /> Running…</div>
-                                                        : h.status === 'background'
-                                                            ? <div>
-                                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#4ade80', marginBottom: 4 }}>
-                                                                    <FaServer size={8} /> Server running in background {h.pid && `(PID ${h.pid})`}
-                                                                </div>
-                                                                {h.out && <pre style={{ margin: 0, color: '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>}
-                                                            </div>
-                                                            : <pre style={{ margin: 0, color: h.status === 'error' ? '#fca5a5' : '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>
-                                                    }
+
+                                        {/* Messages */}
+                                        <div ref={agentScrollRef} style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            {agentMessages.length === 0 && (
+                                                <div style={{ textAlign: 'center', paddingTop: 32, opacity: .45 }}>
+                                                    <FaRobot size={26} color="#6366f1" style={{ marginBottom: 10 }} />
+                                                    <p style={{ color: '#475569', fontSize: 11, lineHeight: 1.7 }}>
+                                                        Ask the AI to build features.<br />
+                                                        <span style={{ color: '#6366f1' }}>Try:</span><br />
+                                                        "Add a login page"<br />
+                                                        "Install axios and fetch data"<br />
+                                                        "Run npm install"
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {agentMessages.map((msg, i) => (
+                                                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                                                    <div style={{
+                                                        maxWidth: '92%', padding: '8px 12px', fontSize: 12, lineHeight: 1.6,
+                                                        borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                                                        background: msg.role === 'user' ? 'linear-gradient(135deg,#6366f1,#818cf8)' : 'rgba(255,255,255,0.04)',
+                                                        border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0'
+                                                    }}>
+                                                        {msg.content}
+                                                    </div>
+                                                    {msg.executed?.map((ex, j) => <ActionCard key={j} action={ex} />)}
                                                 </div>
                                             ))}
+                                            {agentRunning && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10, fontSize: 12, color: '#818cf8' }}>
+                                                    <FaSpinner size={11} style={{ animation: 'spin 1s linear infinite' }} /> Agent running…
+                                                </div>
+                                            )}
+                                            {/* Inline API key prompt */}
+                                            {showKeyPrompt && (
+                                                <div style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 10, padding: '10px 12px' }}>
+                                                    <p style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><FaKey size={10} /> API Key required for {PROVIDERS[agentProvider]?.label}</p>
+                                                    <input type="password" value={inlineKey} onChange={e => setInlineKey(e.target.value)} placeholder="Paste your API key…"
+                                                        style={{ ...inp, fontSize: 11, marginBottom: 6 }} />
+                                                    <p style={{ fontSize: 9, color: '#64748b' }}>Saved server-side (encrypted). Never stored in browser.</p>
+                                                    <button onClick={sendAgentMessage} disabled={!inlineKey.trim()}
+                                                        style={{ ...btn, marginTop: 4, background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', width: '100%', justifyContent: 'center', fontSize: 11 }}>
+                                                        Save Key &amp; Send
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-                                            <span style={{ color: '#4ade80', fontFamily: 'monospace', fontSize: 13, flexShrink: 0 }}>$</span>
-                                            <input value={terminals[activeTerm].input} onChange={e => updateTermInput(activeTerm, e.target.value)}
-                                                onKeyDown={e => { if (e.key === 'Enter') runTermCommand(activeTerm); }}
-                                                disabled={terminals[activeTerm].running}
-                                                placeholder={terminals[activeTerm].running ? 'Running…' : 'Type a command and press Enter'}
-                                                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontFamily: "'Fira Code',monospace", fontSize: 12 }} />
-                                            {terminals[activeTerm].running && <FaSpinner size={11} color="#475569" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+
+                                        {/* Input */}
+                                        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+                                            <div style={{ display: 'flex', gap: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 10px' }}>
+                                                <textarea value={agentInput} onChange={e => setAgentInput(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMessage(); } }}
+                                                    placeholder="Ask AI to build something… (Enter to send)" disabled={agentRunning} rows={2}
+                                                    style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontSize: 12, resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }} />
+                                                <button onClick={sendAgentMessage} disabled={agentRunning || !agentInput.trim()}
+                                                    style={{ ...btn, background: agentRunning || !agentInput.trim() ? 'rgba(99,102,241,0.2)' : 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', padding: '6px 10px', borderRadius: 8, alignSelf: 'flex-end' }}>
+                                                    <FaPlay size={10} />
+                                                </button>
+                                            </div>
+                                            <p style={{ fontSize: 9, color: '#334155', marginTop: 6, textAlign: 'center' }}>Shift+Enter for newline · {PROVIDERS[agentProvider]?.label}</p>
                                         </div>
-                                    </div>
-                                )}
+                                    </Panel>
+
+                                    <Separator onDragging={() => editorRef.current?.layout?.()} style={{ height: 4, cursor: 'row-resize', flexShrink: 0 }} />
+
+                                    {/* Terminal Bottom Right */}
+                                    <Panel defaultSize={40} minSize={20} style={{ display: 'flex', flexDirection: 'column', background: '#0a0a14', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', background: '#111827', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, height: 32, overflowX: 'auto' }}>
+                                            <FaTerminal size={10} color="#6366f1" style={{ margin: '0 8px', flexShrink: 0 }} />
+                                            {terminals.map((t, i) => (
+                                                <div key={t.id} onClick={() => setActiveTerm(i)}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px', height: 32, cursor: 'pointer', flexShrink: 0, fontSize: 11, whiteSpace: 'nowrap', background: activeTerm === i ? '#0a0a14' : 'transparent', borderRight: '1px solid rgba(255,255,255,0.05)', color: activeTerm === i ? '#4ade80' : '#475569' }}>
+                                                    {t.name}
+                                                    {terminals.length > 1 && <span onClick={e => removeTerminal(i, e)}><FaTimes size={8} /></span>}
+                                                </div>
+                                            ))}
+                                            <button onClick={addTerminal} style={{ ...btn, padding: '0 10px', height: 32, color: '#475569', flexShrink: 0 }}><FaPlus size={9} /></button>
+                                        </div>
+                                        {terminals[activeTerm] && (
+                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                                <div ref={termScrollRef} style={{ flex: 1, overflowY: 'auto', padding: '8px 12px', fontFamily: "'Fira Code','Courier New',monospace", fontSize: 12 }}>
+                                                    <div style={{ color: '#4ade80', marginBottom: 8, fontSize: 10 }}>CompileX Terminal — {workspace?.name} {devMode ? ' (DEV ROOT MODE)' : ''}</div>
+                                                    {terminals[activeTerm].history.map((h, i) => (
+                                                        <div key={i} style={{ marginBottom: 8 }}>
+                                                            <div style={{ color: '#818cf8' }}>$ {h.cmd}</div>
+                                                            {h.status === 'running'
+                                                                ? <div style={{ color: '#475569', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}><FaSpinner size={9} style={{ animation: 'spin 1s linear infinite' }} /> Running…</div>
+                                                                : h.status === 'background'
+                                                                    ? <div>
+                                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.25)', borderRadius: 6, padding: '3px 8px', fontSize: 10, color: '#4ade80', marginBottom: 4 }}>
+                                                                            <FaServer size={8} /> Server running in background {h.pid && `(PID ${h.pid})`}
+                                                                        </div>
+                                                                        {h.out && <pre style={{ margin: 0, color: '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>}
+                                                                    </div>
+                                                                    : <pre style={{ margin: 0, color: h.status === 'error' ? '#fca5a5' : '#94a3b8', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, fontSize: 11 }}>{h.out}</pre>
+                                                            }
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+                                                    <span style={{ color: '#4ade80', fontFamily: 'monospace', fontSize: 13, flexShrink: 0 }}>$</span>
+                                                    <input value={terminals[activeTerm].input} onChange={e => updateTermInput(activeTerm, e.target.value)}
+                                                        onKeyDown={e => { if (e.key === 'Enter') runTermCommand(activeTerm); }}
+                                                        disabled={terminals[activeTerm].running}
+                                                        placeholder={terminals[activeTerm].running ? 'Running…' : 'Type a command and press Enter'}
+                                                        style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontFamily: "'Fira Code',monospace", fontSize: 12 }} />
+                                                    {terminals[activeTerm].running && <FaSpinner size={11} color="#475569" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </Panel>
+                                </Group>
                             </Panel>
-                        </Group>
-                    </Panel>
-
-                    <Separator onDragging={() => editorRef.current?.layout?.()} style={{ width: 4, cursor: 'col-resize', flexShrink: 0 }} />
-
-                    {/* ③ AI Agent Panel */}
-                    <Panel defaultSize={27} minSize={20} style={{ display: 'flex', flexDirection: 'column', background: '#111827', borderRadius: 8, border: '1px solid rgba(99,102,241,0.2)', overflow: 'hidden' }}>
-                        {/* Header + model selector */}
-                        <div style={{ padding: '10px 12px', background: 'rgba(99,102,241,0.07)', borderBottom: '1px solid rgba(99,102,241,0.15)', flexShrink: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                                <div style={{ width: 26, height: 26, borderRadius: 7, background: 'linear-gradient(135deg,#6366f1,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <FaRobot size={12} color="#fff" />
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ color: '#c7d2fe', fontSize: 12, fontWeight: 700 }}>AI Agent</div>
-                                    <div style={{ color: '#6366f180', fontSize: 9 }}>Agentic · Multi-model</div>
-                                </div>
-                                {agentRunning && (
-                                    <button onClick={stopAgent} style={{ ...btn, padding: '3px 8px', fontSize: 10, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', gap: 4 }}>
-                                        <FaStop size={8} /> Stop
-                                    </button>
-                                )}
-                            </div>
-                            {/* Provider + Model selectors */}
-                            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                                <select value={agentProvider} onChange={e => { setAgentProvider(e.target.value); setAgentModel(PROVIDERS[e.target.value]?.models[0] || ''); }}
-                                    style={{ ...inp, flex: 1, fontSize: 10, padding: '4px 6px', height: 28 }}>
-                                    {Object.entries(PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                                </select>
-                                <select value={agentModel} onChange={e => setAgentModel(e.target.value)}
-                                    style={{ ...inp, flex: 1.2, fontSize: 10, padding: '4px 6px', height: 28 }}>
-                                    {(PROVIDERS[agentProvider]?.models || []).map(m => <option key={m} value={m}>{m}</option>)}
-                                </select>
-                            </div>
-                            {/* Mode pills */}
-                            <div style={{ display: 'flex', gap: 4 }}>
-                                {[['think', '🧠 Think', FaBrain], ['plan', '📋 Plan', FaListUl], ['code', '⚡ Code', FaCode]].map(([m, label]) => (
-                                    <button key={m} onClick={() => setAgentMode(m)} style={{
-                                        ...btn, flex: 1, padding: '3px 0', fontSize: 9, justifyContent: 'center',
-                                        background: agentMode === m ? 'rgba(99,102,241,0.3)' : 'transparent',
-                                        color: agentMode === m ? '#c7d2fe' : '#64748b',
-                                        borderColor: agentMode === m ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.07)'
-                                    }}>
-                                        {label}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Messages */}
-                        <div ref={agentScrollRef} style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {agentMessages.length === 0 && (
-                                <div style={{ textAlign: 'center', paddingTop: 32, opacity: .45 }}>
-                                    <FaRobot size={26} color="#6366f1" style={{ marginBottom: 10 }} />
-                                    <p style={{ color: '#475569', fontSize: 11, lineHeight: 1.7 }}>
-                                        Ask the AI to build features.<br />
-                                        <span style={{ color: '#6366f1' }}>Try:</span><br />
-                                        "Add a login page"<br />
-                                        "Install axios and fetch data"<br />
-                                        "Run npm install"
-                                    </p>
-                                </div>
-                            )}
-                            {agentMessages.map((msg, i) => (
-                                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                                    <div style={{
-                                        maxWidth: '92%', padding: '8px 12px', fontSize: 12, lineHeight: 1.6,
-                                        borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                                        background: msg.role === 'user' ? 'linear-gradient(135deg,#6366f1,#818cf8)' : 'rgba(255,255,255,0.04)',
-                                        border: msg.role === 'user' ? 'none' : '1px solid rgba(255,255,255,0.08)', color: '#e2e8f0'
-                                    }}>
-                                        {msg.content}
-                                    </div>
-                                    {msg.executed?.map((ex, j) => <ActionCard key={j} action={ex} />)}
-                                </div>
-                            ))}
-                            {agentRunning && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10, fontSize: 12, color: '#818cf8' }}>
-                                    <FaSpinner size={11} style={{ animation: 'spin 1s linear infinite' }} /> Agent running…
-                                </div>
-                            )}
-                            {/* Inline API key prompt */}
-                            {showKeyPrompt && (
-                                <div style={{ background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)', borderRadius: 10, padding: '10px 12px' }}>
-                                    <p style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><FaKey size={10} /> API Key required for {PROVIDERS[agentProvider]?.label}</p>
-                                    <input type="password" value={inlineKey} onChange={e => setInlineKey(e.target.value)} placeholder="Paste your API key…"
-                                        style={{ ...inp, fontSize: 11, marginBottom: 6 }} />
-                                    <p style={{ fontSize: 9, color: '#64748b' }}>Saved server-side (encrypted). Never stored in browser.</p>
-                                    <button onClick={sendAgentMessage} disabled={!inlineKey.trim()}
-                                        style={{ ...btn, marginTop: 4, background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', width: '100%', justifyContent: 'center', fontSize: 11 }}>
-                                        Save Key &amp; Send
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Input */}
-                        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
-                            <div style={{ display: 'flex', gap: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 10px' }}>
-                                <textarea value={agentInput} onChange={e => setAgentInput(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAgentMessage(); } }}
-                                    placeholder="Ask AI to build something… (Enter to send)" disabled={agentRunning} rows={2}
-                                    style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#e2e8f0', fontSize: 12, resize: 'none', fontFamily: 'inherit', lineHeight: 1.5 }} />
-                                <button onClick={sendAgentMessage} disabled={agentRunning || !agentInput.trim()}
-                                    style={{ ...btn, background: agentRunning || !agentInput.trim() ? 'rgba(99,102,241,0.2)' : 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', padding: '6px 10px', borderRadius: 8, alignSelf: 'flex-end' }}>
-                                    <FaPlay size={10} />
-                                </button>
-                            </div>
-                            <p style={{ fontSize: 9, color: '#334155', marginTop: 6, textAlign: 'center' }}>Shift+Enter for newline · {PROVIDERS[agentProvider]?.label}</p>
-                        </div>
-                    </Panel>
-                </Group>
-            </div>
+                        </>
+                    )
+                    }
+                </Group >
+            </div >
 
             <style>{`
                 @keyframes spin{to{transform:rotate(360deg)}}
@@ -586,7 +928,7 @@ export default function FrameworkIDE() {
                 ::-webkit-scrollbar-track{background:transparent}
                 ::-webkit-scrollbar-thumb{background:rgba(99,102,241,0.3);border-radius:9px}
             `}</style>
-        </div>
+        </div >
     );
 }
 

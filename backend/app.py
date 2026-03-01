@@ -17,6 +17,9 @@ from crypto import encrypt_key, decrypt_key
 from workspace import WorkspaceManager
 from workspace_model import WorkspaceModel
 from functools import wraps
+import io
+import zipfile
+import subprocess
 import json
 import re
 
@@ -556,10 +559,77 @@ def exec_ws_command(current_user, ws_id):
     data = request.json or {}
     command = data.get("command", "").strip()
     cwd_rel = data.get("cwd", "")
+    dev_mode = data.get("dev_mode", False)  # new Dev Mode flag
+    
     if not command:
         return jsonify({"error": "command is required"}), 400
-    result = WorkspaceManager.exec_command(ws_id, command, cwd_rel)
+    
+    # Dev mode runs command in backend root rather than workspace root if requested
+    result = WorkspaceManager.exec_command(ws_id, command, cwd_rel, dev_mode)
     return jsonify(result), 200
+
+# ── Source Control (Git) API ───────────────────────────────────────────────
+
+@app.route("/api/workspace/<ws_id>/git", methods=["POST"])
+@token_required
+def workspace_git_ops(current_user, ws_id):
+    if not WorkspaceModel.exists(ws_id):
+        return jsonify({"error": "Workspace not found"}), 404
+        
+    data = request.json or {}
+    action = data.get("action")
+    if not action:
+        return jsonify({"error": "action required"}), 400
+
+    ws_root = WorkspaceManager._ws_path(ws_id)
+    
+    try:
+        if action == "status":
+            # Initialize git if not present
+            if not os.path.exists(os.path.join(ws_root, ".git")):
+                subprocess.run("git init", shell=True, cwd=ws_root, check=True, capture_output=True)
+            
+            # Get changes
+            res = subprocess.run("git status --porcelain", shell=True, cwd=ws_root, capture_output=True, text=True)
+            changes = []
+            for line in res.stdout.splitlines():
+                if len(line) > 2:
+                    st = line[:2]
+                    file = line[3:]
+                    changes.append({"file": file, "status": st})
+            
+            # Get current branch
+            br_res = subprocess.run("git branch --show-current", shell=True, cwd=ws_root, capture_output=True, text=True)
+            branch = br_res.stdout.strip() or "main"
+            
+            return jsonify({"changes": changes, "branch": branch}), 200
+            
+        elif action == "commit":
+            msg = data.get("message", "Update")
+            subprocess.run("git add .", shell=True, cwd=ws_root, check=True)
+            res = subprocess.run(f'git commit -m "{msg}"', shell=True, cwd=ws_root, capture_output=True, text=True)
+            if res.returncode != 0 and "nothing to commit" not in res.stdout:
+                return jsonify({"error": res.stderr or res.stdout}), 400
+            return jsonify({"success": True, "message": "Committed successfully"}), 200
+            
+        elif action == "push":
+            res = subprocess.run("git push", shell=True, cwd=ws_root, capture_output=True, text=True)
+            if res.returncode != 0:
+                return jsonify({"error": res.stderr or res.stdout}), 400
+            return jsonify({"success": True}), 200
+            
+        elif action == "pull":
+            res = subprocess.run("git pull", shell=True, cwd=ws_root, capture_output=True, text=True)
+            if res.returncode != 0:
+                return jsonify({"error": res.stderr or res.stdout}), 400
+            return jsonify({"success": True}), 200
+            
+        return jsonify({"error": f"Unknown action: {action}"}), 400
+    except subprocess.CalledProcessError as e:
+        return jsonify({"error": e.stderr.decode() if e.stderr else str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 
 # ── Agent mode system prompts ──────────────────────────────────────────────

@@ -19,9 +19,21 @@ const LANGUAGES = [
     { id: 'cpp', name: 'C++', icon: <SiCplusplus size={24} color="#659ad2" /> },
     { id: 'go', name: 'Go', icon: <SiGo size={24} color="#00ADD8" /> },
     { id: 'rust', name: 'Rust', icon: <SiRust size={24} color="#DEA584" /> },
+    { id: 'react', name: 'React', icon: <FaReact size={24} color="#61DAFB" /> },
+    { id: 'vue', name: 'Vue.js', icon: <FaVuejs size={24} color="#42B883" /> },
+    { id: 'angular', name: 'Angular', icon: <FaAngular size={24} color="#DD0031" /> },
+    { id: 'nextjs', name: 'Next.js', icon: <SiNextdotjs size={24} color="#ffffff" /> },
+    { id: 'django', name: 'Django', icon: <SiDjango size={24} color="#0C4B33" /> },
+    { id: 'flask', name: 'Flask', icon: <SiFlask size={24} color="#aaaaaa" /> },
+    { id: 'nodejs', name: 'Node.js', icon: <FaNodeJs size={24} color="#3C873A" /> }
 ];
 
-const LANG_COLORS = { python: '#3776AB', javascript: '#F7DF1E', typescript: '#3178C6', java: '#007396', cpp: '#659ad2', go: '#00ADD8', rust: '#DEA584' };
+const LANG_COLORS = {
+    python: '#3776AB', javascript: '#F7DF1E', typescript: '#3178C6',
+    java: '#007396', cpp: '#659ad2', go: '#00ADD8', rust: '#DEA584',
+    react: '#61DAFB', vue: '#42B883', angular: '#DD0031', nextjs: '#ffffff',
+    django: '#0C4B33', flask: '#aaaaaa', nodejs: '#3C873A'
+};
 
 // ── Framework definitions ──────────────────────────────────────────────────
 const WEB_FRAMEWORKS = [
@@ -327,17 +339,17 @@ export default function Dashboard() {
                             {workspaces
                                 .filter(w => !wsSearch || w.name.toLowerCase().includes(wsSearch.toLowerCase()))
                                 .map(ws => {
-                                    const isReact = ws.framework === 'react';
-                                    const wsAccent = isReact ? '#61DAFB' : '#f59e0b';
-                                    const wsGrad = isReact ? 'linear-gradient(135deg,#1d4ed8,#61DAFB)' : 'linear-gradient(135deg,#f59e0b,#fbbf24)';
+                                    const fwLang = LANGUAGES.find(l => l.id === ws.framework) || LANGUAGES.find(l => l.id === 'react');
+                                    const wsAccent = LANG_COLORS[ws.framework] || '#6366f1';
+                                    const wsGrad = `linear-gradient(135deg, ${wsAccent}80, ${wsAccent})`;
                                     return (
                                         <div key={ws.id} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '14px 18px', position: 'relative', overflow: 'hidden' }}>
                                             {/* Accent bar */}
                                             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: wsGrad }} />
                                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                    <div style={{ width: 32, height: 32, borderRadius: 9, background: wsGrad, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                        <FaCode size={13} color="#fff" />
+                                                    <div style={{ width: 32, height: 32, borderRadius: 9, background: wsGrad, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff', '& > svg': { width: '16px', height: '16px' } }}>
+                                                        {fwLang.icon}
                                                     </div>
                                                     <div>
                                                         <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: '#fff' }}>{ws.name}</p>
@@ -351,7 +363,7 @@ export default function Dashboard() {
                                             {/* Meta badges */}
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 12 }}>
                                                 <span style={{ ...wsBadge, color: wsAccent, borderColor: `${wsAccent}30`, background: `${wsAccent}10` }}>
-                                                    {isReact ? 'React' : 'Flask'} {ws.framework_version && `${ws.framework_version}`}
+                                                    {fwLang.name} {ws.framework_version && `${ws.framework_version}`}
                                                 </span>
                                                 <span style={{ ...wsBadge, color: '#60a5fa' }}><FaDocker size={9} /> {ws.docker_os || 'alpine'}</span>
                                                 <span style={{ ...wsBadge, color: '#a78bfa' }}><FaMemory size={9} /> {ws.memory_mb || 512} MB</span>

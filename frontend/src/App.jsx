@@ -8,6 +8,7 @@ import AuthPage from './pages/AuthPage';
 import Dashboard from './pages/Dashboard';
 import EditorPage from './pages/EditorPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
+import FrameworkIDE from './pages/FrameworkIDE';
 
 const ProtectedRoute = ({ children }) => {
   const { token, loading } = useAuth();
@@ -35,6 +36,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <EditorPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/framework/:type"
+        element={
+          <ProtectedRoute>
+            <FrameworkIDE />
           </ProtectedRoute>
         }
       />

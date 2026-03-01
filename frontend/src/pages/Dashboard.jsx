@@ -245,7 +245,11 @@ export default function Dashboard() {
                         label="Web Frameworks"
                         icon={<FaGlobe size={13} color="#6366f1" />}
                         frameworks={WEB_FRAMEWORKS}
-                        onSelect={setComingSoon}
+                        onSelect={name => {
+                            if (name === 'React') navigate('/framework/react');
+                            else if (name === 'Flask') navigate('/framework/flask');
+                            else setComingSoon(name);
+                        }}
                     />
 
                     {/* System Frameworks */}

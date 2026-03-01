@@ -14,7 +14,10 @@ from executor import CodeExecutor
 from ai_service import AIService
 from ai_providers import PROVIDER_CATALOGUE, get_chat_response as provider_chat
 from crypto import encrypt_key, decrypt_key
+from workspace import WorkspaceManager
 from functools import wraps
+import json
+import re
 
 app = Flask(__name__)
 # Enable CORS for the frontend origin
@@ -390,6 +393,202 @@ def github_push(current_user, project_id):
         return jsonify({"message": "Successfully pushed to GitHub", "url": push_res.json().get("content", {}).get("html_url")}), 200
     else:
         return jsonify({"error": f"GitHub API Error: {push_res.json().get('message')}"}), push_res.status_code
+
+
+# ══════════════════════════════════════════════════════════════
+#  WORKSPACE / FRAMEWORK IDE ROUTES
+# ══════════════════════════════════════════════════════════════
+
+@app.route("/api/workspace", methods=["POST"])
+@token_required
+def create_workspace(current_user):
+    data = request.json or {}
+    framework = data.get("framework", "react")
+    if framework not in ("react", "flask"):
+        return jsonify({"error": "framework must be 'react' or 'flask'"}), 400
+    ws = WorkspaceManager.create(current_user["id"], framework)
+    return jsonify(ws), 201
+
+
+@app.route("/api/workspace/<ws_id>", methods=["GET"])
+@token_required
+def get_workspace(current_user, ws_id):
+    info = WorkspaceManager.get_info(ws_id)
+    if not info:
+        return jsonify({"error": "Workspace not found"}), 404
+    return jsonify(info), 200
+
+
+@app.route("/api/workspace/<ws_id>/files", methods=["GET"])
+@token_required
+def workspace_files(current_user, ws_id):
+    tree = WorkspaceManager.list_files(ws_id)
+    if tree is None:
+        return jsonify({"error": "Workspace not found"}), 404
+    return jsonify({"tree": tree}), 200
+
+
+@app.route("/api/workspace/<ws_id>/file", methods=["GET"])
+@token_required
+def read_ws_file(current_user, ws_id):
+    path = request.args.get("path", "")
+    if not path:
+        return jsonify({"error": "path query param required"}), 400
+    content = WorkspaceManager.read_file(ws_id, path)
+    if content is None:
+        return jsonify({"error": "File not found"}), 404
+    return jsonify({"content": content, "path": path}), 200
+
+
+@app.route("/api/workspace/<ws_id>/file", methods=["PUT"])
+@token_required
+def write_ws_file(current_user, ws_id):
+    data = request.json or {}
+    path = data.get("path", "")
+    content = data.get("content", "")
+    if not path:
+        return jsonify({"error": "path is required"}), 400
+    result = WorkspaceManager.write_file(ws_id, path, content)
+    if "error" in result:
+        return jsonify(result), 400
+    return jsonify(result), 200
+
+
+@app.route("/api/workspace/<ws_id>/exec", methods=["POST"])
+@token_required
+def exec_ws_command(current_user, ws_id):
+    if not WorkspaceManager.get_info(ws_id):
+        return jsonify({"error": "Workspace not found"}), 404
+    data = request.json or {}
+    command = data.get("command", "").strip()
+    cwd_rel = data.get("cwd", "")
+    if not command:
+        return jsonify({"error": "command is required"}), 400
+    result = WorkspaceManager.exec_command(ws_id, command, cwd_rel)
+    return jsonify(result), 200
+
+
+@app.route("/api/workspace/<ws_id>/agent", methods=["POST"])
+@token_required
+def workspace_agent(current_user, ws_id):
+    """Agentic AI endpoint — calls Ollama/LM Studio with tool definitions,
+    parses JSON actions, executes writeFile/runCommand/readFile, returns results."""
+    info = WorkspaceManager.get_info(ws_id)
+    if not info:
+        return jsonify({"error": "Workspace not found"}), 404
+
+    data = request.json or {}
+    user_message = data.get("message", "")
+    history = data.get("history", [])  # [{role, content}, ...]
+
+    # Load user's AI config (we use their Ollama / LM Studio setup)
+    user_db = UserModel.get_user_by_id(current_user["id"])
+    provider   = user_db.get("ai_provider") or "ollama"
+    model      = user_db.get("ai_model")    or "llama3.2"
+    ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:1234/v1")
+
+    # Build file context
+    file_list = WorkspaceManager.flat_file_list(ws_id)
+    file_summary = ", ".join(file_list[:40]) or "(empty)"
+    fw = info.get("framework", "react")
+
+    system_prompt = f"""You are an expert {fw.upper()} developer AI inside CompileX Labs IDE.
+Framework: {fw}  |  Project files: {file_summary}
+
+You have these tools:
+- writeFile(path, content) — create or update a file
+- runCommand(command)      — run a shell command in the project root
+- readFile(path)           — read a file's current content
+
+CRITICAL: Respond ONLY with valid JSON — no markdown, no code fences, just raw JSON:
+{{
+  "reply": "Brief, friendly explanation of what you did.",
+  "actions": [
+    {{"type": "writeFile", "path": "src/Button.jsx", "content": "...full file content..."}},
+    {{"type": "runCommand", "command": "npm install axios"}},
+    {{"type": "readFile",   "path": "src/App.jsx"}}
+  ]
+}}
+
+Rules:
+- Write COMPLETE, working code — no placeholders, no '// ...' shortcuts.
+- File paths are relative to the project root (e.g. src/Login.jsx).
+- If no actions are needed, use an empty array: "actions": []
+- NEVER wrap your response in markdown or code blocks.
+"""
+
+    # Build messages for the API call
+    api_messages = [{"role": "system", "content": system_prompt}]
+    for msg in history[-10:]:
+        role = "assistant" if msg.get("role") == "model" else msg.get("role", "user")
+        api_messages.append({"role": role, "content": msg.get("content", "")})
+    api_messages.append({"role": "user", "content": user_message})
+
+    try:
+        import requests as req
+        resp = req.post(
+            f"{ollama_base}/chat/completions",
+            json={"model": model, "messages": api_messages, "stream": False},
+            timeout=180
+        )
+        resp.raise_for_status()
+        raw_content = resp.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        return jsonify({"reply": f"⚠️ AI error: {str(e)[:300]}", "actions": [], "executed": []}), 200
+
+    # Parse JSON from the response (be lenient)
+    parsed = None
+    try:
+        parsed = json.loads(raw_content)
+    except Exception:
+        m = re.search(r'\{[\s\S]*\}', raw_content)
+        if m:
+            try:
+                parsed = json.loads(m.group())
+            except Exception:
+                pass
+
+    if not parsed:
+        return jsonify({"reply": raw_content, "actions": [], "executed": []}), 200
+
+    reply   = parsed.get("reply", "")
+    actions = parsed.get("actions", [])
+    executed = []
+
+    for action in actions:
+        atype = action.get("type", "")
+        result_item = {"type": atype, "status": "ok"}
+
+        if atype == "writeFile":
+            path    = action.get("path", "")
+            content = action.get("content", "")
+            res = WorkspaceManager.write_file(ws_id, path, content)
+            result_item.update({"path": path, "error": res.get("error")})
+            if res.get("error"):
+                result_item["status"] = "error"
+
+        elif atype == "runCommand":
+            cmd = action.get("command", "")
+            res = WorkspaceManager.exec_command(ws_id, cmd)
+            combined = (res.get("stdout", "") + res.get("stderr", "")).strip()
+            result_item.update({
+                "command": cmd,
+                "output":  combined[:3000],
+                "status":  res.get("status", "error"),
+            })
+
+        elif atype == "readFile":
+            path    = action.get("path", "")
+            content = WorkspaceManager.read_file(ws_id, path)
+            result_item.update({
+                "path":    path,
+                "content": content or "(file not found)",
+            })
+
+        executed.append(result_item)
+
+    return jsonify({"reply": reply, "actions": actions, "executed": executed}), 200
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

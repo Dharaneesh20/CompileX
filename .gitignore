@@ -5,6 +5,11 @@
 *.env
 
 # =========================
+# Workspace Files (Framework IDE)
+# =========================
+backend/workspaces/
+
+# =========================
 # Python (Flask Backend)
 # =========================
 backend/venv/

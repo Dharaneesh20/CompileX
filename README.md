@@ -7,6 +7,16 @@
 
 ---
 
+![CompileX Labs](https://img.shields.io/badge/CompileX-Labs-6366f1?style=for-the-badge&logo=code&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)
+![Flask](https://img.shields.io/badge/Flask-3.x-000000?style=flat-square&logo=flask)
+![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?style=flat-square&logo=mongodb)
+![Firebase](https://img.shields.io/badge/Firebase-Auth-FFCA28?style=flat-square&logo=firebase)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+
+**A modern, AI-powered cloud IDE — code, run, and chat with AI in your browser.**
+
+
 **CompileX Labs** is a ECS-hostable, full-stack, browser-based Integrated Development Environment (IDE) built for seamless AI-assisted development, multi-platform framework scaffolding, and complete network-isolated execution via Docker containers.
 
 ## ✨ Core Capabilities

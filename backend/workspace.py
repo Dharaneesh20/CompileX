@@ -11,6 +11,11 @@ from pathlib import Path
 WORKSPACES_DIR = os.path.join(os.path.dirname(__file__), "workspaces")
 os.makedirs(WORKSPACES_DIR, exist_ok=True)
 
+try:
+    from extra_scaffolds import VUE_SCAFFOLD, ANGULAR_SCAFFOLD, NEXT_SCAFFOLD, DJANGO_SCAFFOLD, NODE_SCAFFOLD
+except ImportError:
+    VUE_SCAFFOLD, ANGULAR_SCAFFOLD, NEXT_SCAFFOLD, DJANGO_SCAFFOLD, NODE_SCAFFOLD = {}, {}, {}, {}, {}
+
 # ── Scaffold templates ──────────────────────────────────────────────────────
 
 REACT_SCAFFOLD = {
@@ -356,7 +361,17 @@ class WorkspaceManager:
         ws_path = WorkspaceManager._ws_path(ws_id)
         os.makedirs(ws_path, exist_ok=True)
 
-        scaffold = REACT_SCAFFOLD if framework == "react" else FLASK_SCAFFOLD
+        scaffolds_map = {
+            "react": REACT_SCAFFOLD,
+            "flask": FLASK_SCAFFOLD,
+            "vue": VUE_SCAFFOLD,
+            "angular": ANGULAR_SCAFFOLD,
+            "nextjs": NEXT_SCAFFOLD,
+            "django": DJANGO_SCAFFOLD,
+            "nodejs": NODE_SCAFFOLD
+        }
+        scaffold = scaffolds_map.get(framework, REACT_SCAFFOLD)
+        
         for rel, content in scaffold.items():
             full = os.path.join(ws_path, *rel.split("/"))
             os.makedirs(os.path.dirname(full), exist_ok=True)

@@ -369,14 +369,18 @@ export default function Dashboard() {
                         <span style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 99, padding: '3px 12px', fontSize: 11, color: '#818cf8', fontWeight: 700 }}>Preview</span>
                     </div>
 
-                    {/* Web Frameworks */}
                     <FrameworkRow
                         label="Web Frameworks"
                         icon={<FaGlobe size={13} color="#6366f1" />}
                         frameworks={WEB_FRAMEWORKS}
                         onSelect={name => {
                             if (name === 'React') createAndOpenFramework('react');
+                            else if (name === 'Vue.js') createAndOpenFramework('vue');
+                            else if (name === 'Angular') createAndOpenFramework('angular');
+                            else if (name === 'Next.js') createAndOpenFramework('nextjs');
+                            else if (name === 'Django') createAndOpenFramework('django');
                             else if (name === 'Flask') createAndOpenFramework('flask');
+                            else if (name === 'Node.js') createAndOpenFramework('nodejs');
                             else setComingSoon(name);
                         }}
                         creating={wsCreating}
@@ -788,7 +792,7 @@ function FrameworkRow({ label, icon, frameworks, onSelect }) {
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>{fw.icon}</div>
                         <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', letterSpacing: 0.5 }}>{fw.name}</div>
                         {/* Badge: 'Open' for live frameworks, 'SOON' for others */}
-                        {(fw.name === 'React' || fw.name === 'Flask')
+                        {['React', 'Flask', 'Vue.js', 'Angular', 'Next.js', 'Django', 'Node.js'].includes(fw.name)
                             ? <div style={{ marginTop: 8, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 99, padding: '1px 6px', fontSize: 8, color: '#4ade80', fontWeight: 700, letterSpacing: 0.5 }}>OPEN</div>
                             : <div style={{ marginTop: 8, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 99, padding: '1px 6px', fontSize: 8, color: '#818cf8', fontWeight: 700, letterSpacing: 0.5 }}>SOON</div>
                         }

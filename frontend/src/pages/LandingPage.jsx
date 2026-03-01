@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { FaCode, FaRocket, FaRobot, FaGithub, FaTerminal, FaShieldAlt } from 'react-icons/fa';
+import { FaCode, FaRocket, FaRobot, FaGithub, FaTerminal, FaShieldAlt, FaGlobe, FaSearch } from 'react-icons/fa';
 import { SiPython, SiJavascript, SiCplusplus, SiRust, SiGo } from 'react-icons/si';
 
 const features = [

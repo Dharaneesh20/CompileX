@@ -4,7 +4,7 @@ import {
     FaCode, FaPlus, FaCog, FaRocket, FaHdd, FaCheckCircle, FaTimesCircle,
     FaServer, FaSignOutAlt, FaFolder, FaTrash, FaLock, FaKey, FaEye, FaEyeSlash,
     FaGlobe, FaMobile, FaDesktop, FaReact, FaVuejs, FaAngular, FaNodeJs,
-    FaSearch, FaGitAlt, FaTimes, FaMemory, FaMicrochip, FaDocker, FaSpinner, FaExternalLinkAlt
+    FaSearch, FaGitAlt, FaTimes, FaMemory, FaMicrochip, FaDocker, FaSpinner, FaExternalLinkAlt, FaShieldAlt
 } from 'react-icons/fa';
 import { FaPython, FaJava, FaJsSquare } from 'react-icons/fa';
 import { SiCplusplus, SiGo, SiRust, SiTypescript, SiDjango, SiFlask, SiNextdotjs, SiFlutter, SiIonic, SiElectron, SiDotnet, SiQt } from 'react-icons/si';

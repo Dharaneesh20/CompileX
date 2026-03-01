@@ -860,3 +860,12 @@ def workspace_agent(current_user, ws_id):
                 "path":    path,
                 "content": content or "(file not found)",
             })
+
+        executed.append(result_item)
+
+    return jsonify({"reply": reply, "actions": actions, "executed": executed}), 200
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)

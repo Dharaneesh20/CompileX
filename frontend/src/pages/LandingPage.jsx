@@ -6,7 +6,9 @@ import { SiPython, SiJavascript, SiCplusplus, SiRust, SiGo } from 'react-icons/s
 const features = [
     { icon: <FaTerminal size={20} />, title: 'Multi-Language Sandbox', desc: 'Execute Python, JS, C++, Rust, Go and more in Docker-isolated containers.' },
     { icon: <FaRobot size={20} />, title: 'AI Code Agent', desc: 'Gemini-powered agent reads your code and terminal output — explains, fixes, and writes code for you.' },
+    { icon: <FaGlobe size={20} />, title: 'Full-Stack Frameworks', desc: 'Built-in scaffolding for React, Vue.js, Angular, Next.js, Django, Flask, and Node.js.' },
     { icon: <FaGithub size={20} />, title: 'One-Click Git Push', desc: 'Push directly to any GitHub repo from inside the editor with smart conflict resolution.' },
+    { icon: <FaSearch size={20} />, title: 'SonarQube Scanner', desc: 'Instant code quality, vulnerability, and bug analysis powered by SonarQube right inside your dashboard.' },
     { icon: <FaShieldAlt size={20} />, title: 'Secure Execution', desc: 'Every run is fully network-isolated with CPU and memory limits to keep workspaces safe.' },
 ];
 
@@ -111,10 +113,12 @@ export default function LandingPage() {
                             <FaRocket size={14} /> Start Coding Free
                         </button>
                     </Link>
-                    <button
-                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '14px 36px', color: '#e2e8f0', fontSize: 16, fontWeight: 600, cursor: 'pointer' }}>
-                        Watch Demo
-                    </button>
+                    <a href="#features" style={{ textDecoration: 'none' }}>
+                        <button
+                            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, padding: '14px 36px', color: '#e2e8f0', fontSize: 16, fontWeight: 600, cursor: 'pointer' }}>
+                            View Features
+                        </button>
+                    </a>
                 </div>
 
                 {/* Lang icons */}
@@ -129,7 +133,7 @@ export default function LandingPage() {
             </section>
 
             {/* Features grid */}
-            <section style={{ position: 'relative', zIndex: 1, padding: '40px 5vw 100px' }}>
+            <section id="features" style={{ position: 'relative', zIndex: 1, padding: '40px 5vw 100px' }}>
                 <p style={{ textAlign: 'center', color: '#6366f1', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>Capabilities</p>
                 <h2 style={{ textAlign: 'center', fontSize: 'clamp(1.5rem,3.5vw,2.5rem)', fontWeight: 800, color: '#fff', marginBottom: 56, letterSpacing: -0.5 }}>
                     Everything you need to ship.

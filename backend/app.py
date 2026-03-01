@@ -455,8 +455,8 @@ def list_workspaces(current_user):
 def create_workspace(current_user):
     data = request.json or {}
     framework = data.get("framework", "react")
-    if framework not in ("react", "flask"):
-        return jsonify({"error": "framework must be 'react' or 'flask'"}), 400
+    if framework not in ("react", "flask", "vue", "angular", "nextjs", "django", "nodejs"):
+        return jsonify({"error": "Unsupported framework selected"}), 400
 
     name = data.get("name") or f"My {framework.title()} App"
     config = {
@@ -600,6 +600,108 @@ def exec_ws_command(current_user, ws_id):
     # Dev mode runs command in backend root rather than workspace root if requested
     result = WorkspaceManager.exec_command(ws_id, command, cwd_rel, dev_mode)
     return jsonify(result), 200
+
+# ── SonarQube Code Scanning API ──────────────────────────────────────────
+
+@app.route("/api/workspace/<ws_id>/sonar", methods=["POST"])
+@token_required
+def run_sonarqube_scan(current_user, ws_id):
+    ws = WorkspaceModel.get_by_id(ws_id)
+    if not ws:
+        return jsonify({"error": "Workspace not found"}), 404
+
+    # 1. Gather files
+    tree = WorkspaceManager.list_files(ws_id)
+    code_context = []
+    
+    def fetch_code(nodes):
+        for n in nodes:
+            if n.get("type") == "directory":
+                fetch_code(n.get("children", []))
+            elif n.get("type") == "file":
+                if n["name"].endswith((".js", ".jsx", ".ts", ".tsx", ".py", ".rs", ".go", ".cpp", ".c", ".java", ".html", ".css", ".vue")):
+                    c = WorkspaceManager.read_file(ws_id, n["path"])
+                    if c:
+                        code_context.append(f"--- {n['path']} ---\n{c}\n")
+
+    if tree:
+        fetch_code(tree)
+        
+    file_summary = "\n".join(code_context)[:30000]
+
+    # 2. Config & prompt
+    user_db   = UserModel.get_user_by_id(current_user["id"])
+    provider  = request.json.get("provider") or user_db.get("ai_provider") or "ollama"
+    model     = request.json.get("model") or user_db.get("ai_model") or "llama3.2"
+    
+    api_key = ""
+    encrypted = user_db.get("ai_key_encrypted", "")
+    if encrypted:
+        try: api_key = decrypt_key(encrypted)
+        except: pass
+
+    system_prompt = """You are a SonarQube Code Quality Analyzer.
+Analyze the following code and return ONLY a JSON response matching this schema exactly:
+{
+  "qualityGate": "PASSED" | "FAILED",
+  "bugs": <int>,
+  "vulnerabilities": <int>,
+  "codeSmells": <int>,
+  "coverage": <int 0-100>,
+  "issues": [
+    {"severity": "CRITICAL" | "MAJOR" | "MINOR", "type": "BUG" | "VULNERABILITY" | "CODE_SMELL", "file": "<filepath>", "message": "<issue description>"}
+  ]
+}
+Do not include any markdown format, only raw JSON. Be strict with quality."""
+
+    api_messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Analyze this workspace:\n{file_summary}"}
+    ]
+
+    # 3. Call AI
+    raw_content = ""
+    try:
+        import requests as req
+        if provider == "ollama":
+            base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:1234/v1")
+            resp = req.post(f"{base}/chat/completions", json={"model": model, "messages": api_messages, "stream": False}, timeout=180)
+            resp.raise_for_status()
+            raw_content = resp.json()["choices"][0]["message"]["content"]
+        elif provider == "gemini":
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            gmodel = genai.GenerativeModel(model)
+            resp = gmodel.generate_content(f"{system_prompt}\n\nUser: {api_messages[1]['content']}")
+            raw_content = resp.text
+        elif provider in ("openai", "deepseek"):
+            from openai import OpenAI
+            base_url = "https://api.deepseek.com" if provider == "deepseek" else None
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            resp = client.chat.completions.create(model=model, messages=api_messages)
+            raw_content = resp.choices[0].message.content
+        elif provider == "anthropic":
+            import anthropic as ant
+            client = ant.Anthropic(api_key=api_key)
+            resp = client.messages.create(model=model, max_tokens=2048, system=system_prompt, messages=[{"role": "user", "content": api_messages[1]["content"]}])
+            raw_content = resp.content[0].text
+    except Exception as e:
+        return jsonify({"error": f"AI Error: {str(e)}"}), 500
+
+    # 4. Parse JSON
+    try:
+        import re
+        m = re.search(r'\{[\s\S]*\}', raw_content)
+        json_str = m.group() if m else raw_content
+        sonar_result = json.loads(json_str)
+    except Exception:
+        sonar_result = {
+            "qualityGate": "FAILED", "bugs": 0, "vulnerabilities": 0, "codeSmells": 0, "coverage": 0,
+            "issues": [{"severity": "CRITICAL", "type": "BUG", "file": "system", "message": "Failed to parse AI response into valid SonarQube format."}]
+        }
+
+    WorkspaceModel.update(ws_id, {"sonar_metrics": sonar_result})
+    return jsonify(sonar_result), 200
 
 # ── Source Control (Git) API ───────────────────────────────────────────────
 

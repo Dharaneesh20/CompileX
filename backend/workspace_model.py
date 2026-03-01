@@ -22,6 +22,7 @@ def _fmt(doc) -> dict:
         "memory_mb":         doc.get("memory_mb", 512),
         "cpu_cores":         doc.get("cpu_cores", 1),
         "git_url":           doc.get("git_url", None),
+        "sonar_metrics":     doc.get("sonar_metrics", None),
         "created_at":        doc.get("created_at", datetime.utcnow()).isoformat(),
         "updated_at":        doc.get("updated_at", datetime.utcnow()).isoformat(),
     }
@@ -43,6 +44,7 @@ class WorkspaceModel:
             "memory_mb":         int(config.get("memory_mb", 512)),
             "cpu_cores":         int(config.get("cpu_cores", 1)),
             "git_url":           git_url,
+            "sonar_metrics":     None,
             "created_at":        datetime.utcnow(),
             "updated_at":        datetime.utcnow(),
         }
@@ -60,7 +62,7 @@ class WorkspaceModel:
 
     @staticmethod
     def update(ws_id: str, updates: dict) -> dict:
-        allowed = {"name", "framework_version", "docker_os", "memory_mb", "cpu_cores", "git_url"}
+        allowed = {"name", "framework_version", "docker_os", "memory_mb", "cpu_cores", "git_url", "sonar_metrics"}
         patch = {k: v for k, v in updates.items() if k in allowed}
         patch["updated_at"] = datetime.utcnow()
         workspaces_col.update_one({"_id": ws_id}, {"$set": patch})

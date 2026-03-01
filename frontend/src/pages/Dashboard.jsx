@@ -97,6 +97,10 @@ export default function Dashboard() {
     const [cloning, setCloning] = useState(false);
     const [cloneError, setCloneError] = useState('');
 
+    // SonarQube
+    const [sonarModal, setSonarModal] = useState(null);
+    const [sonarScanning, setSonarScanning] = useState(null);
+
     useEffect(() => {
         fetchProjects();
         fetchWorkspaces();
@@ -139,6 +143,16 @@ export default function Dashboard() {
             navigate(`/framework/${r.data.id}`);
         } catch (e) { setCloneError(e.response?.data?.error || e.message); }
         finally { setCloning(false); }
+    };
+
+    const handleSonarScan = async (ws) => {
+        setSonarScanning(ws.id);
+        try {
+            await api.post(`/workspace/${ws.id}/sonar`, { provider: 'gemini', model: 'gemini-2.5-flash' });
+            await fetchWorkspaces();
+            setSonarModal(null); // re-open to refresh or just let background update
+        } catch (e) { console.error(e); }
+        finally { setSonarScanning(null); }
     };
 
     const fetchProjects = async () => {
@@ -348,10 +362,23 @@ export default function Dashboard() {
                                                 <span style={{ fontSize: 10, color: '#334155' }}>
                                                     {new Date(ws.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                                                 </span>
-                                                <button onClick={() => navigate(`/framework/${ws.id}`)}
-                                                    style={{ display: 'flex', alignItems: 'center', gap: 5, background: wsGrad, border: 'none', borderRadius: 7, padding: '5px 12px', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
-                                                    <FaExternalLinkAlt size={9} /> Open IDE
-                                                </button>
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    {ws.sonar_metrics ? (
+                                                        <button onClick={() => setSonarModal(ws)}
+                                                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: ws.sonar_metrics.qualityGate === 'PASSED' ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${ws.sonar_metrics.qualityGate === 'PASSED' ? 'rgba(74,222,128,0.3)' : 'rgba(239,68,68,0.3)'}`, borderRadius: 7, padding: '5px 10px', color: ws.sonar_metrics.qualityGate === 'PASSED' ? '#4ade80' : '#f87171', cursor: 'pointer', fontSize: 10, fontWeight: 700 }}>
+                                                            <FaSearch size={9} /> {ws.sonar_metrics.qualityGate}
+                                                        </button>
+                                                    ) : (
+                                                        <button onClick={() => handleSonarScan(ws)} disabled={sonarScanning === ws.id}
+                                                            style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7, padding: '5px 10px', color: '#94a3b8', cursor: sonarScanning === ws.id ? 'not-allowed' : 'pointer', fontSize: 10, fontWeight: 700 }}>
+                                                            {sonarScanning === ws.id ? <div style={{ width: 9, height: 9, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> : <FaSearch size={9} />} SonarQube
+                                                        </button>
+                                                    )}
+                                                    <button onClick={() => navigate(`/framework/${ws.id}`)}
+                                                        style={{ display: 'flex', alignItems: 'center', gap: 5, background: wsGrad, border: 'none', borderRadius: 7, padding: '5px 12px', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                                                        <FaExternalLinkAlt size={9} /> Open IDE
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     );
@@ -763,6 +790,59 @@ export default function Dashboard() {
 
                     <button onClick={() => setShowSettings(false)} style={{ width: '100%', marginTop: 8, padding: '11px 0', background: 'linear-gradient(135deg,#6366f1,#818cf8)', border: 'none', borderRadius: 10, color: '#fff', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 20px rgba(99,102,241,0.35)' }}>
                         Done
+                    </button>
+                </ModalWrapper>
+            )}
+
+            {/* ── SONARQUBE MODAL ── */}
+            {sonarModal && sonarModal.sonar_metrics && (
+                <ModalWrapper title={`SonarQube Analysis: ${sonarModal.name}`} onClose={() => setSonarModal(null)}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16, textAlign: 'center' }}>
+                            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Quality Gate</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sonarModal.sonar_metrics.qualityGate === 'PASSED' ? '#4ade80' : '#f87171' }}>{sonarModal.sonar_metrics.qualityGate}</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16, textAlign: 'center' }}>
+                            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Bugs</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sonarModal.sonar_metrics.bugs > 0 ? '#f87171' : '#4ade80' }}>{sonarModal.sonar_metrics.bugs}</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16, textAlign: 'center' }}>
+                            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Vulnerabilities</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sonarModal.sonar_metrics.vulnerabilities > 0 ? '#f87171' : '#4ade80' }}>{sonarModal.sonar_metrics.vulnerabilities}</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: 16, textAlign: 'center' }}>
+                            <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Code Smells</div>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: sonarModal.sonar_metrics.codeSmells > 0 ? '#f59e0b' : '#4ade80' }}>{sonarModal.sonar_metrics.codeSmells}</div>
+                        </div>
+                    </div>
+
+                    <h3 style={{ fontSize: 14, color: '#fff', fontWeight: 700, margin: '0 0 12px 0' }}>Issues ({sonarModal.sonar_metrics.issues?.length || 0})</h3>
+                    {sonarModal.sonar_metrics.issues?.length > 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto' }}>
+                            {sonarModal.sonar_metrics.issues.map((i, idx) => (
+                                <div key={idx} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8, padding: 12 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                        <span style={{ fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ color: i.severity === 'CRITICAL' ? '#f87171' : i.severity === 'MAJOR' ? '#f59e0b' : '#a78bfa' }}>{i.severity}</span>
+                                            <span style={{ color: '#475569' }}>•</span>
+                                            <span style={{ color: '#94a3b8' }}>{i.type}</span>
+                                        </span>
+                                        <span style={{ fontSize: 10, color: '#64748b', fontFamily: 'monospace' }}>{i.file}</span>
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.5 }}>{i.message}</p>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div style={{ textAlign: 'center', padding: 40, background: 'rgba(74,222,128,0.05)', border: '1px dashed rgba(74,222,128,0.2)', borderRadius: 12 }}>
+                            <FaShieldAlt size={32} color="#4ade80" style={{ marginBottom: 16 }} />
+                            <h3 style={{ margin: '0 0 8px', color: '#fff', fontSize: 16 }}>Clean Codebase</h3>
+                            <p style={{ margin: 0, color: '#94a3b8', fontSize: 13 }}>No issues found. Your code is looking great!</p>
+                        </div>
+                    )}
+
+                    <button onClick={() => handleSonarScan(sonarModal)} disabled={sonarScanning === sonarModal.id} style={{ width: '100%', marginTop: 20, padding: '12px 0', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 10, color: '#818cf8', fontWeight: 700, cursor: sonarScanning === sonarModal.id ? 'not-allowed' : 'pointer', transition: 'background .2s' }}>
+                        {sonarScanning === sonarModal.id ? 'Running Scan...' : 'Run New Scan'}
                     </button>
                 </ModalWrapper>
             )}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { FaCode, FaRocket, FaRobot, FaGithub, FaTerminal, FaShieldAlt, FaGlobe, FaSearch } from 'react-icons/fa';
+import { FaCode, FaRocket, FaRobot, FaGithub, FaTerminal, FaShieldAlt, FaGlobe, FaSearch, FaColumns, FaNetworkWired } from 'react-icons/fa';
 import { SiPython, SiJavascript, SiCplusplus, SiRust, SiGo, SiReact, SiVuedotjs, SiAngular, SiNextdotjs, SiDjango, SiFlask, SiNodedotjs, SiSonarqube, SiGithub } from 'react-icons/si';
 
 const features = [
@@ -10,6 +10,8 @@ const features = [
     { icon: <FaGithub size={20} />, title: 'One-Click Git Push', desc: 'Push directly to any GitHub repo from inside the editor with smart conflict resolution.' },
     { icon: <FaSearch size={20} />, title: 'SonarQube Scanner', desc: 'Instant code quality, vulnerability, and bug analysis powered by SonarQube right inside your dashboard.' },
     { icon: <FaShieldAlt size={20} />, title: 'Secure Execution', desc: 'Every run is fully network-isolated with CPU and memory limits to keep workspaces safe.' },
+    { icon: <FaColumns size={20} />, title: 'Customizable Layout & Root Terminal', desc: 'Get full control with VS Code style draggable UI, flexible resizable layouts, and direct root terminal access.' },
+    { icon: <FaNetworkWired size={20} />, title: 'Local AI & LM Studio', desc: 'Connect locally-hosted Ollama or LM Studio models for completely private, remote AI-assisted development.' },
 ];
 
 const langs = [

@@ -778,14 +778,17 @@ function FrameworkRow({ label, icon, frameworks, onSelect }) {
                     <div
                         key={fw.name}
                         onClick={() => onSelect(fw.name)}
-                        title={`${fw.name} — Coming Soon`}
+                        title={fw.name}
                         style={{ flexShrink: 0, width: 90, padding: '14px 10px', borderRadius: 14, textAlign: 'center', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', transition: 'all .25s', position: 'relative', overflow: 'hidden' }}
                         onMouseEnter={e => { e.currentTarget.style.borderColor = `${fw.color}55`; e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = `0 10px 30px ${fw.color}20`; e.currentTarget.style.background = `${fw.color}0A`; }}
                         onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; }}>
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>{fw.icon}</div>
                         <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', letterSpacing: 0.5 }}>{fw.name}</div>
-                        {/* Coming soon badge */}
-                        <div style={{ marginTop: 8, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 99, padding: '1px 6px', fontSize: 8, color: '#818cf8', fontWeight: 700, letterSpacing: 0.5 }}>SOON</div>
+                        {/* Badge: 'Open' for live frameworks, 'SOON' for others */}
+                        {(fw.name === 'React' || fw.name === 'Flask')
+                            ? <div style={{ marginTop: 8, background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 99, padding: '1px 6px', fontSize: 8, color: '#4ade80', fontWeight: 700, letterSpacing: 0.5 }}>OPEN</div>
+                            : <div style={{ marginTop: 8, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 99, padding: '1px 6px', fontSize: 8, color: '#818cf8', fontWeight: 700, letterSpacing: 0.5 }}>SOON</div>
+                        }
                     </div>
                 ))}
             </div>

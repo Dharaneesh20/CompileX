@@ -1,0 +1,47 @@
+# =========================
+# Environment Variables
+# =========================
+.env
+*.env
+
+# =========================
+# Python (Flask Backend)
+# =========================
+backend/venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# =========================
+# Node (React Frontend)
+# =========================
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+
+# =========================
+# Logs
+# =========================
+*.log
+backend.log
+frontend.log
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# Docker
+# =========================
+*.tar

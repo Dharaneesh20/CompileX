@@ -7,7 +7,7 @@
 
 ---
 
-**CompileX Labs** is a locally-hostable, full-stack, browser-based Integrated Development Environment (IDE) built for seamless AI-assisted development, multi-platform framework scaffolding, and complete network-isolated execution via Docker containers.
+**CompileX Labs** is a ECS-hostable, full-stack, browser-based Integrated Development Environment (IDE) built for seamless AI-assisted development, multi-platform framework scaffolding, and complete network-isolated execution via Docker containers.
 
 ## ✨ Core Capabilities
 
